@@ -766,6 +766,12 @@ dialog h3 {
   border-color: color-mix(in srgb, #d33 40%, var(--line));
   background: transparent;
 }
+#linkText {
+  width: 100%;
+  font-size: 13px;
+  margin-bottom: 10px;
+  color: var(--muted);
+}
 dialog.menu {
   padding: 10px;
   width: min(320px, 92vw);

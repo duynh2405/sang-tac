@@ -20,6 +20,7 @@ import {
 } from './compose';
 import { listSongs, saveSong, deleteSong } from './storage';
 import { APP_VERSION, setupInstall, setupUpdates } from './pwa';
+import { decodeSong, sharedCodeInUrl, shareLink } from './share';
 
 const $ = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id) as T;
 
@@ -725,6 +726,59 @@ function openChordQuick(i: number) {
   ($('chordQuick') as HTMLDialogElement).showModal();
 }
 
+// ---------- gửi bài qua link ----------
+async function openLinkDialog() {
+  if (cur !== null && dirty) commitDraft(false);
+  if (!cs.words.length && !cs.lyricsText.trim()) return toast('Bài còn trống, hãy viết lời trước đã.');
+  let url = '';
+  try {
+    url = await shareLink(cs);
+  } catch {
+    return toast('Không tạo được link trên trình duyệt này.');
+  }
+  ($('linkText') as HTMLInputElement).value = url;
+  const text = `Mời bạn xem và sửa bài «${cs.title}» của mình trên app Sáng tác:`;
+  $('linkShare').hidden = !navigator.share;
+  $('linkShare').onclick = () => navigator.share({ title: cs.title, text, url }).catch(() => undefined);
+  $('linkCopy').onclick = () => {
+    const done = () => toast('Đã sao chép link. Dán vào Zalo, Messenger… để gửi.');
+    navigator.clipboard?.writeText(url).then(done, () => {
+      ($('linkText') as HTMLInputElement).select();
+      document.execCommand('copy');
+      done();
+    }) ?? (($('linkText') as HTMLInputElement).select(), document.execCommand('copy'), done());
+  };
+  ($('linkDialog') as HTMLDialogElement).showModal();
+}
+
+/** Mở bài từ link bạn bè gửi: luôn tạo bản sao riêng trên máy này. */
+async function importFromUrl() {
+  const code = sharedCodeInUrl();
+  if (!code) return;
+  history.replaceState(null, '', location.pathname + location.search);
+  const key = code.slice(0, 64) + code.length;
+  const existing = listSongs().find((s) => s.sharedFrom === key);
+  if (existing) {
+    saveSong(cs);
+    cs = existing;
+    undoStack.length = 0;
+    renderAll();
+    return toast(`Bài «${existing.title}» đã có trong máy, đã mở bản của bạn.`, 4500);
+  }
+  try {
+    const got = await decodeSong(code);
+    got.sharedFrom = key;
+    saveSong(cs);
+    cs = got;
+    saveSong(cs);
+    undoStack.length = 0;
+    renderAll();
+    toast(`Đã nhận bài «${got.title}». Đây là bản của riêng bạn, cứ sửa thoải mái.`, 5000);
+  } catch {
+    toast('Link bài hát bị lỗi hoặc bị cắt mất một phần.', 5000);
+  }
+}
+
 // ---------- tra vần ----------
 type RhymeMod = typeof import('./lyrics/rhyme');
 let rhymeMod: RhymeMod | null = null;
@@ -1104,7 +1158,8 @@ function bind() {
     const act = t?.dataset.act;
     if (!act) return;
     ($('menuDialog') as HTMLDialogElement).close();
-    if (act === 'clearChords') clearChords(null);
+    if (act === 'sendLink') void openLinkDialog();
+    else if (act === 'clearChords') clearChords(null);
     else if (act === 'new') newSongAction();
     else if (act === 'open') openSongs();
     else if (act === 'sheet') void openSheet();
@@ -1142,3 +1197,5 @@ setupUpdates({
   },
 });
 renderAll();
+void importFromUrl();
+window.addEventListener('hashchange', () => void importFromUrl());

@@ -139,6 +139,7 @@
     </div>
 
     <dialog id="menuDialog" class="menu">
+      <button data-act="sendLink">🔗 Gửi bài cho bạn bè</button>
       <button data-act="new">＋ Bài mới</button>
       <button data-act="open">📂 Bài đã lưu</button>
       <button data-act="sheet">𝄞 Xem sheet &amp; in PDF</button>
@@ -213,6 +214,21 @@
         <button id="cqDelete" class="danger-ghost">🗑 Xóa hợp âm này</button>
         <span class="spacer"></span>
         <form method="dialog"><button>Đóng</button></form>
+      </div>
+    </dialog>
+
+    <dialog id="linkDialog">
+      <h3>🔗 Gửi bài cho bạn bè</h3>
+      <p class="hint">
+        Bạn bè bấm vào link là mở được <b>bản sao giống hệt</b> bài này ngay trên máy họ. Họ sửa thoải mái,
+        <b>không ảnh hưởng</b> bài của bạn. Link chứa bài ở thời điểm tạo; sửa tiếp thì gửi link mới.
+      </p>
+      <input id="linkText" readonly />
+      <div class="row">
+        <button id="linkShare" class="primary" hidden>📤 Chia sẻ…</button>
+        <button id="linkCopy">📋 Sao chép link</button>
+        <span class="spacer"></span>
+        <form method="dialog"><button class="ghost">Đóng</button></form>
       </div>
     </dialog>
 

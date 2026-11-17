@@ -31,6 +31,8 @@ export interface ComposeSong {
   words: Word[];
   created: number;
   updated: number;
+  /** mã link gốc nếu bài được nhận từ bạn bè */
+  sharedFrom?: string;
 }
 
 export function newCompose(partial: Partial<ComposeSong> = {}): ComposeSong {
