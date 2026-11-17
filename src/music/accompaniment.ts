@@ -55,3 +55,21 @@ export function generateLeftHand(chords: Chord[], pattern: LhPattern, beatsPerMe
   }
   return out;
 }
+
+/**
+ * Tay trái không được đánh trùng đúng cao độ nốt giai điệu đang vang
+ * (trên cùng một cây đàn sẽ nghe như chữ bị hát lại 2 lần).
+ * Nốt trùng được hạ một quãng tám, nếu vẫn trùng thì bỏ.
+ */
+export function avoidMelodyClash<T extends LhNote>(lh: T[], melody: { start: number; dur: number; midi: number }[]): T[] {
+  const clash = (midi: number, s: number, e: number) =>
+    melody.some((m) => m.midi === midi && m.start < e && s < m.start + m.dur);
+  const out: T[] = [];
+  for (const n of lh) {
+    const e = n.start + n.dur;
+    if (!clash(n.midi, n.start, e)) out.push(n);
+    else if (n.midi - 12 >= 36 && !clash(n.midi - 12, n.start, e) && !out.some((o) => o.start === n.start && o.midi === n.midi - 12))
+      out.push({ ...n, midi: n.midi - 12 });
+  }
+  return out;
+}

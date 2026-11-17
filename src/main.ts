@@ -1513,6 +1513,14 @@ function bind() {
     openLineEdit(menuLine);
   };
   $('leSave').onclick = saveLineEdit;
+  $('leDelete').onclick = () => {
+    const ta = $('leText') as HTMLTextAreaElement;
+    const keep = ta.value;
+    ta.value = '';
+    saveLineEdit();
+    // người dùng bấm "Hủy" ở hộp xác nhận: trả lại lời như cũ
+    if (($('lineEditDialog') as HTMLDialogElement).open) ta.value = keep;
+  };
   $('leText').addEventListener('keydown', (e) => {
     const k = e as KeyboardEvent;
     if (k.key === 'Enter' && (k.ctrlKey || k.metaKey)) {

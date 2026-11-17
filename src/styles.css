@@ -1552,6 +1552,13 @@ button.stop:not(:disabled):hover {
   color: var(--brand-ink);
   border-color: var(--brand);
 }
+.line-edit .row {
+  gap: 6px;
+}
+.line-edit .row button {
+  white-space: nowrap;
+  padding: 7px 12px;
+}
 .line-edit textarea {
   width: 100%;
   font-family: var(--lyric);

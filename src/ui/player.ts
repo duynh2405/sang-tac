@@ -1,6 +1,6 @@
 import * as Tone from 'tone';
 import { TPB, type Chord, type Song } from '../model';
-import { generateLeftHand } from '../music/accompaniment';
+import { avoidMelodyClash, generateLeftHand } from '../music/accompaniment';
 import { midiToHz } from '../music/theory';
 
 let sampler: Tone.Sampler | null = null;
@@ -85,7 +85,8 @@ export async function play(song: Song, chords: Chord[], o: PlayOptions): Promise
     }
   }
   if (o.accompaniment) {
-    for (const n of generateLeftHand(chords, song.lhPattern, song.beatsPerMeasure)) {
+    const lh = generateLeftHand(chords, song.lhPattern, song.beatsPerMeasure);
+    for (const n of o.melody ? avoidMelodyClash(lh, song.notes) : lh) {
       if (n.start < from || n.start >= to) continue;
       const d = Math.min(n.dur, to - n.start);
       tr.schedule((time) => inst.play(n.midi, d * tickSec * 0.95, time, 0.5), (n.start - from) * tickSec);

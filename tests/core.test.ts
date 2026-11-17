@@ -210,3 +210,17 @@ describe('luyến (nhiều nốt một chữ)', () => {
     expect(b.words[1].slur).toBeUndefined();
   });
 });
+
+import { avoidMelodyClash } from '../src/music/accompaniment';
+describe('tay trái không đánh trùng nốt giai điệu đang vang', () => {
+  it('hạ quãng tám nốt trùng', () => {
+    const melody = [{ start: 0, dur: 4, midi: 64 }];
+    const lh = [
+      { start: 0, dur: 2, midi: 48 },
+      { start: 1, dur: 2, midi: 64 },
+      { start: 2, dur: 2, midi: 55 },
+    ];
+    const out = avoidMelodyClash(lh, melody);
+    expect(out.map((n) => n.midi)).toEqual([48, 52, 55]);
+  });
+});
