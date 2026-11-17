@@ -1265,6 +1265,7 @@ button.install {
 /* khuông nhạc mờ, nối liền giữa các ô */
 .w .pc {
   position: relative;
+  overflow: hidden;
   margin: 0 -2px;
   background: repeating-linear-gradient(
     to bottom,
@@ -1277,11 +1278,10 @@ button.install {
 }
 .pd {
   position: absolute;
+  /* 1 phách = 12px; nốt luyến nối tiếp nhau, cách 2px */
   left: 6px;
   top: calc(3px + var(--y) * 16px);
   height: 5px;
-  width: calc(8px + var(--len) * (100% - 14px));
-  min-width: 8px;
   border-radius: 3px;
   background: var(--brand);
   box-shadow: 0 0 0 2px var(--card);
@@ -1614,11 +1614,6 @@ button.stop:not(:disabled):hover {
   color: var(--brand-ink);
   background: transparent;
   min-height: 40px;
-}
-.pd.m {
-  left: calc(4px + var(--x) * (100% - 8px));
-  width: calc(var(--w) * (100% - 8px) - 3px);
-  min-width: 6px;
 }
 .w.cur .pd.act {
   background: var(--brand);

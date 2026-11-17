@@ -239,18 +239,19 @@ function renderLines() {
     if (shown.midi !== null && (w.done || i === cur)) {
       const sp = span[lineOfW[i]];
       const seq = [{ midi: shown.midi, dur: shown.dur }, ...(shown.slur ?? [])];
-      const total = seq.reduce((s, x) => s + x.dur, 0);
+      // cùng một thước đo cho mọi chữ: độ dài vạch tỉ lệ với độ dài nốt
       let acc = 0;
       seq.forEach((x, k) => {
         const pd = document.createElement('i');
-        pd.className = seq.length > 1 ? 'pd m' : 'pd';
+        pd.className = 'pd';
         pd.style.setProperty('--y', String(1 - (x.midi - sp.lo) / (sp.hi - sp.lo)));
-        pd.style.setProperty('--len', String(Math.min(1, x.dur / 16)));
-        pd.style.setProperty('--x', String(acc / total));
-        pd.style.setProperty('--w', String(x.dur / total));
+        // 1 phách = 12px, tối thiểu 7px; nốt luyến nối tiếp, cách nhau 3px
+        const wpx = Math.max(7, x.dur * 3);
+        pd.style.width = `${wpx}px`;
+        pd.style.left = `${6 + acc}px`;
+        acc += wpx + 3;
         if (i === cur && k === sub) pd.classList.add('act');
         pc.append(pd);
-        acc += x.dur;
       });
       if (seq.length > 1) b.classList.add('melisma');
     }
