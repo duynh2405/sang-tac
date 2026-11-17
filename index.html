@@ -91,7 +91,7 @@
       <button id="btnPlay" class="play" aria-label="Phát"></button>
       <button id="btnStop" class="stop" aria-label="Dừng hẳn" title="Dừng hẳn, về đầu" disabled></button>
       <div class="pinfo">
-        <div class="ptitle">Nghe thử bản demo</div>
+        <div class="ptitle">Nghe thử</div>
         <div class="ptrack"><div id="pfill"></div></div>
       </div>
       <label class="mini"><input id="playAcc" type="checkbox" checked /> Đệm</label>
@@ -208,12 +208,28 @@
 
     <dialog id="lineMenu" class="menu">
       <div class="menu-title" id="lmTitle"></div>
+      <button id="lmEditLine">✎ Sửa lời câu này</button>
       <button id="lmCopyFrom">📋 Lấy nốt &amp; nhịp từ câu khác…</button>
       <button id="lmCopyTo">📤 Chép nốt &amp; nhịp của câu này sang câu khác…</button>
       <button id="lmClearChords">🧹 Xóa hợp âm của câu này</button>
       <button id="lmClearNotes">↺ Xóa nốt của câu này</button>
       <button id="lmClearAllChords">🧹 Xóa hợp âm cả bài</button>
       <form method="dialog"><button class="ghost">Đóng</button></form>
+    </dialog>
+
+    <dialog id="lineEditDialog" class="line-edit">
+      <h3 id="leTitle">Sửa lời câu</h3>
+      <textarea id="leText" rows="2" autocomplete="off" spellcheck="false"></textarea>
+      <p class="hint">
+        Chữ nào giữ nguyên thì giữ nốt và hợp âm. Chữ mới thêm sẽ chưa có nốt. Xuống dòng để tách thành nhiều câu,
+        xóa hết để bỏ cả câu.
+      </p>
+      <div class="row">
+        <button id="leRhyme" class="ghost">🔎 Tra vần</button>
+        <span class="spacer"></span>
+        <form method="dialog"><button>Hủy</button></form>
+        <button id="leSave" class="primary">Lưu lời</button>
+      </div>
     </dialog>
 
     <dialog id="copyDialog">

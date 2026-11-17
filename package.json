@@ -1,6 +1,6 @@
 {
   "name": "hat-ra-nhac",
-  "version": "3.4.0",
+  "version": "3.5.0",
   "private": true,
   "description": "Hát ra nhạc: hát vài câu, app tạo giai điệu, hợp âm piano tay trái, sheet nhạc kèm lời tiếng Việt. Miễn phí, chạy hoàn toàn trên trình duyệt.",
   "type": "module",

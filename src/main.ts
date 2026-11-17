@@ -265,6 +265,17 @@ function renderLines() {
     }
   });
   if (line.childElementCount > 1) box.append(line);
+  // nút sửa lời ở cuối mỗi câu
+  box.querySelectorAll<HTMLElement>('.line').forEach((l) => {
+    const n = Number(l.dataset.line);
+    const eb = document.createElement('button');
+    eb.className = 'le';
+    eb.innerHTML = '✎';
+    eb.title = `Sửa lời câu ${n + 1}`;
+    eb.setAttribute('aria-label', eb.title);
+    eb.onclick = () => openLineEdit(n);
+    l.append(eb);
+  });
 
   const done = cs.words.filter((w) => w.done).length;
   $('status').innerHTML = `Đã viết <b>${done}</b>/${cs.words.length} chữ · ${measureCount(cs)} ô nhịp · ${keyName(key)}`;
@@ -533,6 +544,67 @@ function renderSlurTabs() {
   }
 }
 
+// ---------- sửa lời từng câu ----------
+let editLine = 0;
+
+function openLineEdit(n: number) {
+  closeEditor();
+  stopPlay();
+  const r = lineRanges()[n];
+  if (!r) return;
+  editLine = n;
+  $('leTitle').textContent = `Sửa lời câu ${n + 1}`;
+  const ta = $('leText') as HTMLTextAreaElement;
+  ta.value = cs.words.slice(r.first, r.last + 1).map((w) => w.text).join(' ');
+  ($('lineEditDialog') as HTMLDialogElement).showModal();
+  ta.focus();
+  ta.setSelectionRange(ta.value.length, ta.value.length);
+}
+
+function saveLineEdit() {
+  const r = lineRanges()[editLine];
+  if (!r) return;
+  const text = ($('leText') as HTMLTextAreaElement).value;
+  const old = cs.words.slice(r.first, r.last + 1);
+  const lastBr = old[old.length - 1].br;
+  const fresh = relyric(old, text);
+  const changed =
+    fresh.length !== old.length || fresh.some((w, k) => w.text !== old[k].text || (k < fresh.length - 1 && w.br));
+  if (!changed) {
+    ($('lineEditDialog') as HTMLDialogElement).close();
+    return;
+  }
+  if (!fresh.length) {
+    if (cs.words.length === old.length) return toast('Bài phải còn ít nhất một câu.');
+    if (!confirm(`Xóa cả câu ${editLine + 1} khỏi bài? (có thể bấm ↶ để hoàn tác)`)) return;
+  }
+  const blanks = blankLinesMap();
+  snapshot();
+  if (fresh.length) fresh[fresh.length - 1].br = lastBr;
+  // câu cuối bị xóa: câu trước thành câu cuối
+  if (!fresh.length && !lastBr && r.first > 0) cs.words[r.first - 1].br = false;
+  cs.words.splice(r.first, old.length, ...fresh);
+  const d = fresh.length - old.length;
+  const m = new Map<number, number>();
+  blanks.forEach((v, k) => {
+    if (k < r.first) m.set(k, v);
+    else if (k >= r.last) m.set(Math.max(r.first - 1, k + d), v);
+  });
+  rebuildLyrics(m);
+  persist();
+  ($('lineEditDialog') as HTMLDialogElement).close();
+  renderLines();
+  const added = fresh.filter((w) => !w.done).length - old.filter((w) => !w.done).length;
+  toast(
+    !fresh.length
+      ? `Đã xóa câu ${editLine + 1}.`
+      : added > 0
+        ? `Đã sửa lời câu ${editLine + 1}. Có ${added} chữ mới chưa có nốt.`
+        : `Đã sửa lời câu ${editLine + 1}.`,
+    4000,
+  );
+}
+
 // ---------- sửa chữ ngay trong bảng chọn nốt ----------
 function startWordEdit() {
   if (cur === null) return;
@@ -707,7 +779,7 @@ function setPlayUi(on: boolean) {
   b.title = b.getAttribute('aria-label')!;
   ($('btnStop') as HTMLButtonElement).disabled = !on;
   document.querySelector('.ptitle')!.textContent = !on
-    ? 'Nghe thử bản demo'
+    ? 'Nghe thử'
     : paused
       ? 'Tạm dừng'
       : playingLine !== null
@@ -1261,9 +1333,10 @@ async function showRhymes(word: string) {
 }
 
 function useRhymeWord(text: string) {
-  const editing = !$('lyricsEdit').hidden;
+  const lineOpen = ($('lineEditDialog') as HTMLDialogElement).open;
+  const editing = lineOpen || !$('lyricsEdit').hidden;
   if (editing && lyricsCaret) {
-    const ta = $('lyrics') as HTMLTextAreaElement;
+    const ta = $(lineOpen ? 'leText' : 'lyrics') as HTMLTextAreaElement;
     const v = ta.value;
     const before = v.slice(0, lyricsCaret.start);
     const after = v.slice(lyricsCaret.end);
@@ -1273,8 +1346,10 @@ function useRhymeWord(text: string) {
     const pos = before.length + pre.length + text.length + post.length;
     lyricsCaret = { start: pos, end: pos };
     ta.setSelectionRange(pos, pos);
-    cs.lyricsText = ta.value;
-    persist();
+    if (!lineOpen) {
+      cs.lyricsText = ta.value;
+      persist();
+    }
     toast(`Đã chèn «${text}» vào lời`);
     return;
   }
@@ -1430,6 +1505,26 @@ function bind() {
     toast('Đã xóa hợp âm.');
   };
   ($('chordQuick') as HTMLDialogElement).addEventListener('close', () => (quickTarget = null));
+
+  // sửa lời từng câu
+  $('lmEditLine').onclick = () => {
+    ($('lineMenu') as HTMLDialogElement).close();
+    openLineEdit(menuLine);
+  };
+  $('leSave').onclick = saveLineEdit;
+  $('leText').addEventListener('keydown', (e) => {
+    const k = e as KeyboardEvent;
+    if (k.key === 'Enter' && (k.ctrlKey || k.metaKey)) {
+      e.preventDefault();
+      saveLineEdit();
+    }
+  });
+  $('leRhyme').onclick = () => {
+    const ta = $('leText') as HTMLTextAreaElement;
+    lyricsCaret = { start: ta.selectionStart, end: ta.selectionStart };
+    const before = ta.value.slice(0, ta.selectionStart).match(/([\p{L}]+)[^\p{L}]*$/u);
+    void openRhyme(before ? before[1] : '');
+  };
 
   // sửa chữ trong bảng chọn nốt
   $('edWordBtn').onclick = startWordEdit;

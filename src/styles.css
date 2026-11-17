@@ -1531,6 +1531,35 @@ button.stop:not(:disabled):hover {
   padding: 0;
 }
 
+/* sửa lời từng câu */
+.le {
+  align-self: flex-start;
+  margin-top: 44px;
+  width: 30px;
+  height: 30px;
+  min-height: 30px;
+  padding: 0;
+  border-radius: 50%;
+  border: 1px dashed var(--line);
+  background: transparent;
+  color: var(--muted);
+  font-size: 14px;
+  opacity: 0.75;
+}
+.le:hover,
+.le:focus-visible {
+  opacity: 1;
+  color: var(--brand-ink);
+  border-color: var(--brand);
+}
+.line-edit textarea {
+  width: 100%;
+  font-family: var(--lyric);
+  font-size: 19px;
+  line-height: 1.5;
+  resize: vertical;
+}
+
 /* luyến: nhiều nốt trên một chữ */
 .slur-row {
   align-items: center;
