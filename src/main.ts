@@ -785,11 +785,27 @@ function openChordQuick(i: number) {
 }
 
 // ---------- lưu / mở file bài ----------
-function saveToFile() {
+async function saveToFile() {
   if (cur !== null && dirty) commitDraft(false);
   const data = JSON.stringify({ app: 'sang-tac', ...pack(cs) });
-  download(data, 'application/json', `${safeName()}.sangtac`);
-  toast('Đã lưu file bài. Mở lại bằng ☰ → Mở file bài, trên máy nào cũng được.', 4500);
+  const name = `${safeName()}.sangtac`;
+  // Máy tính (Chrome/Edge): cho chọn nơi lưu
+  const picker = (window as any).showSaveFilePicker;
+  if (picker) {
+    try {
+      const h = await picker({ suggestedName: name, types: [{ description: 'Bài Sáng tác', accept: { 'application/octet-stream': ['.sangtac'] } }] });
+      const w = await h.createWritable();
+      await w.write(data);
+      await w.close();
+      toast(`Đã lưu «${h.name}».`);
+    } catch (e) {
+      if ((e as Error)?.name !== 'AbortError') toast('Không lưu được file. Hãy thử lại.');
+    }
+    return;
+  }
+  // Điện thoại: trình duyệt tự lưu vào thư mục Tải xuống, không hỏi nơi lưu
+  download(data, 'application/octet-stream', name);
+  toast(`Đã lưu «${name}» vào thư mục Tải xuống (Download) của máy. Mở lại bằng ☰ → Mở file bài.`, 6000);
 }
 
 async function openFromFile(f: File) {
@@ -1249,23 +1265,15 @@ function bind() {
     if (!act) return;
     ($('menuDialog') as HTMLDialogElement).close();
     if (act === 'sendLink') void openLinkDialog();
-    else if (act === 'saveFile') saveToFile();
+    else if (act === 'saveFile') void saveToFile();
     else if (act === 'openFile') ($('fileInput') as HTMLInputElement).click();
     else if (act === 'clearChords') clearChords(null);
     else if (act === 'new') newSongAction();
     else if (act === 'open') openSongs();
     else if (act === 'sheet') void openSheet();
     else if (act === 'midi' && hasMusic()) download(midiBytes(), 'audio/midi', `${safeName()}.mid`);
-    else if (act === 'xml' && hasMusic()) {
-      const { song, chords } = toSong(cs);
-      download(songToMusicXml(song, chords), 'application/vnd.recordare.musicxml+xml', `${safeName()}.musicxml`);
-    } else if (act === 'share' && hasMusic()) {
-      const f = new File([midiBytes()], `${safeName()}.mid`, { type: 'audio/midi' });
-      navigator.share({ files: [f], title: cs.title }).catch(() => undefined);
-    }
+
   });
-  const probe = new File([new Uint8Array(1)], 'a.mid', { type: 'audio/midi' });
-  $('menuShare').hidden = !navigator.canShare?.({ files: [probe] });
   $('sheetPdf').onclick = () => window.print();
   $('sheetMidi').onclick = () => hasMusic() && download(midiBytes(), 'audio/midi', `${safeName()}.mid`);
 }
