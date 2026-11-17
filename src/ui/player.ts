@@ -64,6 +64,7 @@ export interface PlayOptions {
 }
 
 let endTimer: number | null = null;
+let endEventId: number | null = null;
 
 export async function play(song: Song, chords: Chord[], o: PlayOptions): Promise<void> {
   await Tone.start();
@@ -91,12 +92,29 @@ export async function play(song: Song, chords: Chord[], o: PlayOptions): Promise
       endTick = Math.max(endTick, n.start + d);
     }
   }
+  // kết thúc theo đồng hồ của transport, nên tạm dừng/tiếp tục vẫn đúng giờ
+  endEventId = tr.scheduleOnce((time) => {
+    Tone.getDraw().schedule(() => {
+      stop();
+      o.onEnd?.();
+    }, time);
+  }, (endTick - from) * tickSec + 0.6);
   tr.start('+0.05');
-  const totalMs = (endTick - from) * tickSec * 1000 + 600;
-  endTimer = window.setTimeout(() => {
-    stop();
-    o.onEnd?.();
-  }, totalMs);
+}
+
+/** Tạm dừng: giữ nguyên vị trí, ngắt các nốt đang vang. */
+export function pause(): void {
+  const tr = Tone.getTransport();
+  if (tr.state !== 'started') return;
+  tr.pause();
+  sampler?.releaseAll();
+  fallback?.releaseAll();
+}
+
+/** Phát tiếp từ chỗ đã tạm dừng. */
+export function resume(): void {
+  const tr = Tone.getTransport();
+  if (tr.state === 'paused') tr.start('+0.03');
 }
 
 export function stop(): void {
@@ -105,6 +123,10 @@ export function stop(): void {
     endTimer = null;
   }
   const tr = Tone.getTransport();
+  if (endEventId !== null) {
+    tr.clear(endEventId);
+    endEventId = null;
+  }
   tr.stop();
   tr.cancel(0);
   sampler?.releaseAll();
@@ -114,7 +136,7 @@ export function stop(): void {
 /** Vị trí đang phát (giây kể từ lúc bấm phát), hoặc -1 nếu đang dừng. */
 export function position(): number {
   const tr = Tone.getTransport();
-  return tr.state === 'started' ? tr.seconds : -1;
+  return tr.state === 'stopped' ? -1 : tr.seconds;
 }
 
 /** Nghe trước một nốt khi sửa. */

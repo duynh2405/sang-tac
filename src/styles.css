@@ -1404,6 +1404,32 @@ button.play.on {
   transition: width 0.12s linear;
 }
 
+button.play {
+  display: grid;
+  place-items: center;
+}
+button.play.paused {
+  background: var(--brand);
+  animation: none;
+}
+button.stop {
+  flex: none;
+  width: 40px;
+  height: 40px;
+  min-height: 40px;
+  padding: 0;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  color: var(--ink);
+  background: var(--card-2);
+  margin-left: -4px;
+}
+button.stop:not(:disabled):hover {
+  border-color: var(--warn);
+  color: var(--warn);
+}
+
 /* bảng chọn nốt: trượt lên, nảy nhẹ */
 .editor {
   border-radius: 24px 24px 0 0;

@@ -46,6 +46,11 @@ let dirty = false;
 let playing = false;
 let playingLine: number | null = null; // câu đang phát (null = cả bài)
 let playingFrom: number | null = null; // đang phát từ câu này đến hết bài
+let paused = false;
+const SVG_PLAY = '<svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><path d="M8 5.5v13l10.5-6.5z" fill="currentColor"/></svg>';
+const SVG_PAUSE =
+  '<svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><rect x="6.5" y="5.5" width="4" height="13" rx="1.2" fill="currentColor"/><rect x="13.5" y="5.5" width="4" height="13" rx="1.2" fill="currentColor"/></svg>';
+const SVG_STOP = '<svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><rect x="6" y="6" width="12" height="12" rx="2" fill="currentColor"/></svg>';
 const ICON_FROM = '<svg viewBox="0 0 22 14" width="20" height="13" aria-hidden="true"><path d="M1 1.5v11l8.5-5.5z" fill="currentColor"/><path d="M16 1.5v9.5M12.6 7.8 16 11.4l3.4-3.6" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/></svg>';
 const ICON_STOP = '<svg viewBox="0 0 22 14" width="20" height="13" aria-hidden="true"><rect x="6" y="2" width="10" height="10" rx="1.5" fill="currentColor"/></svg>';
 const undoStack: string[] = [];
@@ -694,8 +699,35 @@ function go(delta: number) {
 
 // ---------- nghe thử ----------
 function setPlayUi(on: boolean) {
-  $('btnPlay').classList.toggle('on', on);
-  $('btnPlay').textContent = on ? '■' : '▶';
+  const b = $('btnPlay');
+  b.classList.toggle('on', on && !paused);
+  b.classList.toggle('paused', on && paused);
+  b.innerHTML = on && !paused ? SVG_PAUSE : SVG_PLAY;
+  b.setAttribute('aria-label', on && !paused ? 'Tạm dừng' : paused ? 'Phát tiếp' : 'Phát');
+  b.title = b.getAttribute('aria-label')!;
+  ($('btnStop') as HTMLButtonElement).disabled = !on;
+  document.querySelector('.ptitle')!.textContent = !on
+    ? 'Nghe thử bản demo'
+    : paused
+      ? 'Tạm dừng'
+      : playingLine !== null
+        ? `Câu ${playingLine + 1}`
+        : playingFrom !== null
+          ? `Từ câu ${playingFrom + 1}`
+          : 'Cả bài';
+}
+
+/** Nút phát lớn: chưa phát -> phát cả bài; đang phát -> tạm dừng; đang dừng -> phát tiếp. */
+function togglePlayPause() {
+  if (!playing) return void play();
+  if (paused) {
+    paused = false;
+    playerMod?.resume();
+  } else {
+    paused = true;
+    playerMod?.pause();
+  }
+  setPlayUi(true);
 }
 
 /** Các câu (dòng lời): chỉ số chữ đầu và cuối. */
@@ -758,6 +790,7 @@ async function play(range?: { from: number; to: number; line?: number; fromLine?
       return { ...c, start: s, dur: Math.min(c.start + c.dur, to) - s };
     });
   playing = true;
+  paused = false;
   playingLine = range?.line ?? null;
   playingFrom = range?.fromLine ?? null;
   setPlayUi(true);
@@ -805,6 +838,7 @@ async function play(range?: { from: number; to: number; line?: number; fromLine?
 function stopPlay() {
   const wasLine = playingLine !== null || playingFrom !== null;
   playing = false;
+  paused = false;
   playingLine = null;
   playingFrom = null;
   document.querySelectorAll('.line.follow').forEach((x) => x.classList.remove('follow'));
@@ -1483,7 +1517,7 @@ function bind() {
     if (cur === null || !draft) {
       if (e.key === ' ') {
         e.preventDefault();
-        playing ? stopPlay() : void play();
+        togglePlayPause();
       }
       return;
     }
@@ -1502,7 +1536,10 @@ function bind() {
   });
 
   // nghe thử
-  $('btnPlay').onclick = () => (playing ? stopPlay() : void play());
+  $('btnPlay').onclick = togglePlayPause;
+  $('btnStop').innerHTML = SVG_STOP;
+  $('btnStop').onclick = stopPlay;
+  setPlayUi(false);
   $('btnSheet').onclick = openSheet;
   $('btnUndo').onclick = undo;
 
