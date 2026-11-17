@@ -142,6 +142,7 @@
       <button data-act="new">＋ Bài mới</button>
       <button data-act="open">📂 Bài đã lưu</button>
       <button data-act="sheet">𝄞 Xem sheet &amp; in PDF</button>
+      <button data-act="clearChords">🧹 Xóa hợp âm cả bài</button>
       <button data-act="midi">⬇ Tải file MIDI</button>
       <button data-act="xml">⬇ Tải MusicXML</button>
       <button data-act="share" id="menuShare" hidden>📤 Chia sẻ MIDI</button>
@@ -185,6 +186,34 @@
         </div>
       </div>
       <div id="sheet" class="sheet"></div>
+    </dialog>
+
+    <dialog id="lineMenu" class="menu">
+      <div class="menu-title" id="lmTitle"></div>
+      <button id="lmCopyFrom">📋 Lấy nốt &amp; nhịp từ câu khác…</button>
+      <button id="lmCopyTo">📤 Chép nốt &amp; nhịp của câu này sang câu khác…</button>
+      <button id="lmClearChords">🧹 Xóa hợp âm của câu này</button>
+      <button id="lmClearNotes">↺ Xóa nốt của câu này</button>
+      <button id="lmClearAllChords">🧹 Xóa hợp âm cả bài</button>
+      <form method="dialog"><button class="ghost">Đóng</button></form>
+    </dialog>
+
+    <dialog id="copyDialog">
+      <h3 id="cpTitle"></h3>
+      <p class="hint" id="cpHint"></p>
+      <label class="check"><input type="checkbox" id="cpChords" /> Chép kèm hợp âm</label>
+      <div id="cpList" class="cp-list"></div>
+      <form method="dialog"><button class="ghost">Hủy</button></form>
+    </dialog>
+
+    <dialog id="chordQuick">
+      <h3 id="cqTitle"></h3>
+      <div id="cqChips" class="chips"></div>
+      <div class="row">
+        <button id="cqDelete" class="danger-ghost">🗑 Xóa hợp âm này</button>
+        <span class="spacer"></span>
+        <form method="dialog"><button>Đóng</button></form>
+      </div>
     </dialog>
 
     <dialog id="chordDialog">

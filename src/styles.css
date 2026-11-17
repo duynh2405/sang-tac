@@ -305,13 +305,32 @@ textarea {
   gap: 4px;
   padding: 4px 0;
 }
-.lp {
+.lctl {
   flex: none;
   align-self: flex-start;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  margin: 17px 4px 0 0;
+}
+.lm {
+  width: 34px;
+  height: 26px;
+  min-height: 26px;
+  padding: 0;
+  border-radius: 13px;
+  border: 1px solid var(--line);
+  background: transparent;
+  color: var(--muted);
+  font-size: 15px;
+  line-height: 1;
+}
+.lp {
+  flex: none;
   width: 34px;
   height: 34px;
   min-height: 34px;
-  margin: 17px 4px 0 0;
   padding: 0;
   border-radius: 50%;
   border: 1px solid var(--line);
@@ -349,6 +368,15 @@ textarea {
   cursor: pointer;
 }
 .w:hover {
+  background: var(--brand-soft);
+}
+.w .ch.has {
+  cursor: pointer;
+  border-radius: 6px;
+  padding: 0 4px;
+  margin: 0 -4px;
+}
+.w .ch.has:hover {
   background: var(--brand-soft);
 }
 .w .ch {
@@ -668,6 +696,75 @@ dialog::backdrop {
 }
 dialog h3 {
   margin-top: 0;
+}
+.menu-title {
+  font-weight: 700;
+  padding: 4px 6px 6px;
+  color: var(--muted);
+  font-size: 14px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.check {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 4px 0 10px;
+  font-weight: 600;
+}
+.check input {
+  width: 20px;
+  height: 20px;
+}
+.cp-list {
+  display: grid;
+  gap: 6px;
+  max-height: 50dvh;
+  overflow: auto;
+  margin-bottom: 10px;
+}
+.cp-list button {
+  text-align: left;
+  display: grid;
+  gap: 2px;
+  padding: 8px 12px;
+}
+.cp-list button small {
+  color: var(--muted);
+  font-weight: 500;
+}
+.cp-list button:disabled {
+  opacity: 0.45;
+}
+#chordQuick .chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 12px;
+}
+#chordQuick .chips button {
+  min-width: 58px;
+  display: grid;
+  font-weight: 800;
+}
+#chordQuick .chips button small {
+  font-weight: 500;
+  font-size: 11px;
+  color: var(--muted);
+}
+#chordQuick .chips button.on {
+  background: var(--brand);
+  color: #fff;
+  border-color: var(--brand);
+}
+#chordQuick .chips button.on small {
+  color: #fff;
+}
+.danger-ghost {
+  color: #d33;
+  border-color: color-mix(in srgb, #d33 40%, var(--line));
+  background: transparent;
 }
 dialog.menu {
   padding: 10px;

@@ -133,7 +133,16 @@ function renderLines() {
     pb.setAttribute('aria-label', `Nghe câu ${n + 1}`);
     pb.textContent = n === playingLine ? '■' : '▶';
     pb.onclick = () => (playingLine === n ? stopPlay() : void playLine(n));
-    l.append(pb);
+    const mb = document.createElement('button');
+    mb.className = 'lm';
+    mb.textContent = '⋯';
+    mb.title = `Tùy chọn câu ${n + 1}: chép nốt, xóa hợp âm`;
+    mb.setAttribute('aria-label', mb.title);
+    mb.onclick = () => openLineMenu(n);
+    const ctl = document.createElement('div');
+    ctl.className = 'lctl';
+    ctl.append(pb, mb);
+    l.append(ctl);
     return l;
   };
   let line = newLine();
@@ -145,6 +154,14 @@ function renderLines() {
     const ch = document.createElement('span');
     ch.className = 'ch';
     ch.textContent = shown.chord ? chordName(shown.chord, key) : '';
+    if (shown.chord && i !== cur) {
+      ch.classList.add('has');
+      ch.title = 'Bấm để đổi hoặc xóa hợp âm';
+      ch.onclick = (e) => {
+        e.stopPropagation();
+        openChordQuick(i);
+      };
+    }
     const tx = document.createElement('span');
     tx.className = 'tx';
     tx.textContent = w.text;
@@ -553,6 +570,161 @@ async function openSheet() {
   }
 }
 
+// ---------- thao tác theo câu ----------
+let menuLine = 0;
+const lineText = (r: { first: number; last: number }) => {
+  const t = cs.words.slice(r.first, r.last + 1).map((w) => w.text).join(' ');
+  return t.length > 38 ? t.slice(0, 36) + '…' : t;
+};
+
+function openLineMenu(n: number) {
+  menuLine = n;
+  const r = lineRanges()[n];
+  $('lmTitle').textContent = `Câu ${n + 1}: ${lineText(r)}`;
+  ($('lineMenu') as HTMLDialogElement).showModal();
+}
+
+/** Chép nốt & nhịp (và hợp âm nếu chọn) từ câu src sang câu dst, theo thứ tự chữ. */
+function copyLine(src: number, dst: number, withChords: boolean) {
+  const rs = lineRanges();
+  const a = rs[src];
+  const b = rs[dst];
+  const la = a.last - a.first + 1;
+  const lb = b.last - b.first + 1;
+  const n = Math.min(la, lb);
+  closeEditor(false);
+  snapshot();
+  let copied = 0;
+  for (let k = 0; k < n; k++) {
+    const s = cs.words[a.first + k];
+    const d = cs.words[b.first + k];
+    if (!s.done) continue;
+    d.midi = s.midi;
+    d.dur = s.dur;
+    d.rest = s.rest;
+    d.done = true;
+    if (withChords) d.chord = s.chord ? { ...s.chord } : null;
+    copied++;
+  }
+  persist();
+  renderLines();
+  let msg = `Đã chép ${copied} nốt từ câu ${src + 1} sang câu ${dst + 1}.`;
+  if (lb > la) msg += ` Câu ${dst + 1} dài hơn ${lb - la} chữ, hãy viết thêm phần cuối.`;
+  else if (la > lb) msg += ` Câu ${src + 1} dài hơn, bỏ ${la - lb} nốt cuối.`;
+  toast(msg, 4500);
+  // chuyển tới chữ đầu tiên chưa có nốt của câu đích (nếu có)
+  for (let i = b.first; i <= b.last; i++) if (!cs.words[i].done) return openEditor(i);
+}
+
+function openCopy(mode: 'from' | 'to') {
+  const rs = lineRanges();
+  const me = menuLine;
+  ($('lineMenu') as HTMLDialogElement).close();
+  $('cpTitle').textContent = mode === 'from' ? `Lấy nốt cho câu ${me + 1} từ…` : `Chép nốt câu ${me + 1} sang…`;
+  $('cpHint').textContent =
+    'Nốt được chép lần lượt theo từng chữ. Hợp với các câu có giai điệu lặp lại (cùng số chữ). Có thể bấm ↶ để hoàn tác.';
+  const myDone = cs.words.slice(rs[me].first, rs[me].last + 1).filter((w) => w.done).length;
+  const list = $('cpList');
+  list.innerHTML = '';
+  if (mode === 'to' && !myDone) {
+    list.innerHTML = '<p class="hint">Câu này chưa có nốt nào để chép.</p>';
+  }
+  rs.forEach((r, n) => {
+    if (n === me) return;
+    const words = cs.words.slice(r.first, r.last + 1);
+    const done = words.filter((w) => w.done).length;
+    const b = document.createElement('button');
+    const info =
+      mode === 'from'
+        ? done
+          ? `${words.length} chữ · ${done} nốt`
+          : `${words.length} chữ · chưa có nốt`
+        : `${words.length} chữ${done ? ` · đã có ${done} nốt (sẽ bị ghi đè)` : ' · chưa có nốt'}`;
+    b.innerHTML = `<span>Câu ${n + 1}: ${lineText(r).replace(/</g, '&lt;')}</span><small>${info}</small>`;
+    b.disabled = mode === 'from' ? !done : !myDone;
+    b.onclick = () => {
+      ($('copyDialog') as HTMLDialogElement).close();
+      const wc = ($('cpChords') as HTMLInputElement).checked;
+      mode === 'from' ? copyLine(n, me, wc) : copyLine(me, n, wc);
+    };
+    list.append(b);
+  });
+  ($('copyDialog') as HTMLDialogElement).showModal();
+}
+
+/** Xóa hợp âm: line = số câu, hoặc null = cả bài. */
+function clearChords(line: number | null) {
+  const r = line === null ? { first: 0, last: cs.words.length - 1 } : lineRanges()[line];
+  const ws = cs.words.slice(r.first, r.last + 1);
+  if (!ws.some((w) => w.chord)) return toast(line === null ? 'Bài chưa có hợp âm nào.' : 'Câu này chưa có hợp âm.');
+  if (line === null && !confirm('Xóa tất cả hợp âm trong bài? (có thể bấm ↶ để hoàn tác)')) return;
+  closeEditor(false);
+  snapshot();
+  ws.forEach((w) => (w.chord = null));
+  persist();
+  renderLines();
+  toast(line === null ? 'Đã xóa hợp âm cả bài.' : `Đã xóa hợp âm câu ${line + 1}.`);
+}
+
+function clearNotes(line: number) {
+  const r = lineRanges()[line];
+  const ws = cs.words.slice(r.first, r.last + 1);
+  if (!ws.some((w) => w.done)) return toast('Câu này chưa có nốt.');
+  closeEditor(false);
+  snapshot();
+  ws.forEach((w) => {
+    w.done = false;
+    w.midi = null;
+    w.rest = 0;
+  });
+  persist();
+  renderLines();
+  toast(`Đã xóa nốt câu ${line + 1}.`);
+}
+
+// ---------- sửa nhanh hợp âm trên lời ----------
+let quickTarget: number | null = null;
+
+function setWordChord(i: number, c: WordChord | null) {
+  snapshot();
+  cs.words[i].chord = c;
+  persist();
+  renderLines();
+}
+
+function openChordQuick(i: number) {
+  const w = cs.words[i];
+  if (!w.chord) return;
+  quickTarget = i;
+  const key = toSong(cs).song.key;
+  $('cqTitle').textContent = `Hợp âm trên chữ «${w.text}»`;
+  const box = $('cqChips');
+  box.innerHTML = '';
+  const seen = new Set<string>();
+  const opts = [{ ...w.chord, sub: 'đang dùng' }, ...diatonicChords(key).map((c) => ({ root: c.root, quality: c.quality, sub: c.degree }))];
+  for (const c of opts) {
+    const name = chordName(c, key);
+    if (seen.has(name)) continue;
+    seen.add(name);
+    const b = document.createElement('button');
+    b.className = c.root === w.chord.root && c.quality === w.chord.quality ? 'on' : '';
+    b.innerHTML = `${name}<small>${c.sub}</small>`;
+    b.onclick = () => {
+      setWordChord(i, { root: c.root, quality: c.quality });
+      ($('chordQuick') as HTMLDialogElement).close();
+    };
+    box.append(b);
+  }
+  const other = document.createElement('button');
+  other.innerHTML = 'Khác…<small>gõ tên</small>';
+  other.onclick = () => {
+    ($('chordInput') as HTMLInputElement).value = chordName(w.chord!, key);
+    ($('chordDialog') as HTMLDialogElement).showModal();
+  };
+  box.append(other);
+  ($('chordQuick') as HTMLDialogElement).showModal();
+}
+
 // ---------- tra vần ----------
 type RhymeMod = typeof import('./lyrics/rhyme');
 let rhymeMod: RhymeMod | null = null;
@@ -810,6 +982,28 @@ function bind() {
     toast('Đã gợi ý hợp âm. Bấm vào chữ để đổi nếu muốn.');
   };
 
+  // theo câu / hợp âm
+  $('lmCopyFrom').onclick = () => openCopy('from');
+  $('lmCopyTo').onclick = () => openCopy('to');
+  $('lmClearChords').onclick = () => {
+    ($('lineMenu') as HTMLDialogElement).close();
+    clearChords(menuLine);
+  };
+  $('lmClearNotes').onclick = () => {
+    ($('lineMenu') as HTMLDialogElement).close();
+    clearNotes(menuLine);
+  };
+  $('lmClearAllChords').onclick = () => {
+    ($('lineMenu') as HTMLDialogElement).close();
+    clearChords(null);
+  };
+  $('cqDelete').onclick = () => {
+    if (quickTarget !== null) setWordChord(quickTarget, null);
+    ($('chordQuick') as HTMLDialogElement).close();
+    toast('Đã xóa hợp âm.');
+  };
+  ($('chordQuick') as HTMLDialogElement).addEventListener('close', () => (quickTarget = null));
+
   // tra vần
   $('rhymeFromLyrics').onclick = () => {
     const ta = $('lyrics') as HTMLTextAreaElement;
@@ -863,7 +1057,10 @@ function bind() {
     const c = parseChordName(($('chordInput') as HTMLInputElement).value);
     if (!c) return toast('Không hiểu tên hợp âm. Ví dụ: C, Am, F#m, Bb, G7, Bdim.');
     ($('chordDialog') as HTMLDialogElement).close();
-    setDraftChord(c);
+    if (quickTarget !== null) {
+      setWordChord(quickTarget, c);
+      ($('chordQuick') as HTMLDialogElement).close();
+    } else setDraftChord(c);
   };
 
   document.addEventListener('keydown', (e) => {
@@ -907,7 +1104,8 @@ function bind() {
     const act = t?.dataset.act;
     if (!act) return;
     ($('menuDialog') as HTMLDialogElement).close();
-    if (act === 'new') newSongAction();
+    if (act === 'clearChords') clearChords(null);
+    else if (act === 'new') newSongAction();
     else if (act === 'open') openSongs();
     else if (act === 'sheet') void openSheet();
     else if (act === 'midi' && hasMusic()) download(midiBytes(), 'audio/midi', `${safeName()}.mid`);
