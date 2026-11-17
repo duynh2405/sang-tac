@@ -1,0 +1,188 @@
+<!doctype html>
+<html lang="vi">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="description" content="Hát vài câu, app tự tạo giai điệu, hợp âm piano và sheet nhạc kèm lời tiếng Việt. Miễn phí, chạy ngay trên trình duyệt." />
+    <meta name="theme-color" content="#2457d6" />
+    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%232457d6'/%3E%3Cpath d='M40 12v28a8 8 0 1 1-4-7V20l-14 4v20a8 8 0 1 1-4-7V20z' fill='white'/%3E%3C/svg%3E" />
+    <title>Hát ra nhạc – hát vài câu, ra sheet piano</title>
+  </head>
+  <body>
+    <header class="topbar">
+      <div class="brand">🎹 <b>Hát ra nhạc</b></div>
+      <input id="title" class="title-input" aria-label="Tên bài hát" />
+      <div class="top-actions">
+        <button id="btnNew" class="ghost" title="Bài mới">＋ Bài mới</button>
+        <button id="btnOpen" class="ghost" title="Bài đã lưu">📂 Bài đã lưu</button>
+      </div>
+    </header>
+
+    <main>
+      <!-- 1. THU ÂM -->
+      <section class="card" id="recordCard">
+        <h2><span class="step">1</span> Hát vào đây</h2>
+        <div class="row wrap">
+          <label>Tốc độ <input id="tempo" type="number" min="40" max="200" value="80" /> BPM</label>
+          <label>Nhịp
+            <select id="meter">
+              <option value="4">4/4</option>
+              <option value="3">3/4</option>
+              <option value="2">2/4</option>
+            </select>
+          </label>
+          <label class="check"><input id="clickDuring" type="checkbox" checked /> Gõ nhịp khi hát</label>
+        </div>
+        <div class="record-zone">
+          <button id="btnRecord" class="record" aria-label="Thu âm">
+            <span class="dot"></span><span id="recLabel">Bấm để thu</span>
+          </button>
+          <div class="beats" id="beats" aria-hidden="true"></div>
+          <div class="meter-bar"><div id="level"></div></div>
+          <p class="hint" id="recHint">
+            App sẽ gõ 1 ô nhịp đếm vào, rồi bạn hát theo tiếng gõ. Nên đeo tai nghe để tiếng gõ không lọt vào micro.
+          </p>
+        </div>
+        <details class="more">
+          <summary>Tùy chọn khác</summary>
+          <div class="row wrap">
+            <label>Độ chi tiết nhịp
+              <select id="grid">
+                <option value="2">Móc đơn (1/8)</option>
+                <option value="1">Móc kép (1/16)</option>
+              </select>
+            </label>
+            <label class="check"><input id="legato" type="checkbox" checked /> Nối liền khoảng nghỉ ngắn</label>
+            <label class="file-btn">🎵 Hoặc tải file ghi âm<input id="file" type="file" accept="audio/*" hidden /></label>
+          </div>
+        </details>
+        <div class="progress" id="anaProgress" hidden><div></div><span>Đang phân tích giọng hát…</span></div>
+      </section>
+
+      <!-- 2. NGHE & CHỈNH -->
+      <section class="card" id="editCard">
+        <h2><span class="step">2</span> Nghe &amp; chỉnh sửa</h2>
+        <div class="row wrap play-row">
+          <button id="btnPlay" class="primary">▶ Phát</button>
+          <button id="btnStop">■ Dừng</button>
+          <label class="check"><input id="playMelody" type="checkbox" checked /> Giai điệu</label>
+          <label class="check"><input id="playAcc" type="checkbox" checked /> Đệm tay trái</label>
+          <button id="btnVoice" class="ghost">🎤 Nghe giọng gốc</button>
+        </div>
+        <div class="row wrap">
+          <label>Giọng <select id="key"></select></label>
+          <label>Kiểu đệm
+            <select id="lh">
+              <option value="broken">Bass – hợp âm</option>
+              <option value="ballad">Rải (ballad)</option>
+              <option value="block">Hợp âm ngân</option>
+              <option value="waltz">Valse (3/4)</option>
+            </select>
+          </label>
+          <label>Hợp âm
+            <select id="cpm">
+              <option value="1">1 hợp âm / ô nhịp</option>
+              <option value="2">2 hợp âm / ô nhịp</option>
+            </select>
+          </label>
+          <button id="btnReharm" class="ghost" title="Gán lại hợp âm tự động">🔄 Hòa âm lại</button>
+        </div>
+
+        <div class="toolbar row wrap">
+          <button id="btnUndo" title="Hoàn tác (Ctrl+Z)">↶</button>
+          <button id="btnRedo" title="Làm lại (Ctrl+Y)">↷</button>
+          <span class="sep"></span>
+          <button id="nUp" title="Lên nửa cung (↑)">▲</button>
+          <button id="nDown" title="Xuống nửa cung (↓)">▼</button>
+          <button id="nLeft" title="Sớm hơn (←)">◀</button>
+          <button id="nRight" title="Muộn hơn (→)">▶</button>
+          <button id="nLonger" title="Dài hơn (Shift+→)">⟷＋</button>
+          <button id="nShorter" title="Ngắn hơn (Shift+←)">⟷－</button>
+          <button id="nSplit" title="Tách đôi nốt">✂</button>
+          <button id="nMerge" title="Gộp với nốt sau">⛓</button>
+          <button id="nDelete" title="Xóa nốt (Delete)">🗑</button>
+          <span class="sep"></span>
+          <button id="allUp" class="ghost" title="Đổi tông cả bài lên nửa cung">Tông +</button>
+          <button id="allDown" class="ghost" title="Đổi tông cả bài xuống nửa cung">Tông −</button>
+          <button id="allLeft" class="ghost" title="Dịch cả bài sớm hơn">⇤ Dịch</button>
+          <button id="allRight" class="ghost" title="Dịch cả bài muộn hơn">Dịch ⇥</button>
+          <span class="sep"></span>
+          <label class="zoom">Thu phóng <input id="zoom" type="range" min="6" max="28" value="12" /></label>
+        </div>
+
+        <div class="roll-wrap" id="roll"></div>
+        <p class="hint">
+          Kéo nốt để đổi cao độ/thời điểm, kéo mép phải để đổi độ dài. Nhấn đúp (hoặc chạm 2 lần) vào chỗ trống để thêm nốt.
+          Bấm vào tên hợp âm phía trên để đổi hợp âm.
+        </p>
+
+        <div class="inspector" id="inspector" hidden>
+          <b id="insName"></b>
+          <label>Lời của nốt <input id="insLyric" placeholder="một chữ" /></label>
+        </div>
+      </section>
+
+      <!-- 3. LỜI -->
+      <section class="card" id="lyricCard">
+        <h2><span class="step">3</span> Lời bài hát</h2>
+        <textarea id="lyrics" rows="3" placeholder="Gõ lời bài hát (mỗi chữ ứng với một nốt), hoặc bấm nhận lời từ giọng hát."></textarea>
+        <div class="row wrap">
+          <button id="btnAssign" class="primary">Gán lời vào nốt</button>
+          <button id="btnAsr">🤖 Nhận lời từ giọng hát</button>
+          <label>Mô hình
+            <select id="asrModel">
+              <option value="base">Nhanh (~80 MB)</option>
+              <option value="small">Chính xác hơn (~250 MB)</option>
+            </select>
+          </label>
+        </div>
+        <div class="progress" id="asrProgress" hidden><div></div><span></span></div>
+        <p class="hint" id="lyricMsg">
+          AI nghe lời chạy ngay trên máy bạn, không gửi giọng hát đi đâu. Lần đầu cần tải mô hình; lời nhận được chỉ là bản nháp, bạn sửa lại cho đúng.
+        </p>
+        <div id="toneBox" class="tone-box" hidden>
+          <h3>Gợi ý về dấu thanh</h3>
+          <p class="hint">Tiếng Việt có dấu: nếu giai điệu đi ngược hướng dấu, hát lên dễ bị nghe thành chữ khác. Bấm vào gợi ý để tới nốt đó.</p>
+          <ul id="toneList"></ul>
+        </div>
+      </section>
+
+      <!-- 4. SHEET -->
+      <section class="card" id="sheetCard">
+        <h2><span class="step">4</span> Sheet nhạc &amp; tải về</h2>
+        <div class="row wrap">
+          <button id="btnMidi" class="primary">⬇ File MIDI</button>
+          <button id="btnPdf">🖨 In / lưu PDF</button>
+          <button id="btnXml">⬇ MusicXML</button>
+          <button id="btnWav" class="ghost">⬇ Bản thu giọng (WAV)</button>
+          <button id="btnShare" class="ghost" hidden>📤 Chia sẻ</button>
+        </div>
+        <div id="sheet" class="sheet"><p class="hint">Hát xong, sheet nhạc sẽ hiện ở đây.</p></div>
+      </section>
+    </main>
+
+    <dialog id="songsDialog">
+      <h3>Bài đã lưu trên máy này</h3>
+      <ul id="songsList"></ul>
+      <form method="dialog"><button>Đóng</button></form>
+    </dialog>
+
+    <dialog id="chordDialog">
+      <h3>Đổi hợp âm</h3>
+      <div id="chordChoices" class="chord-choices"></div>
+      <label>Hoặc gõ hợp âm <input id="chordInput" placeholder="vd: Am, F, G7, C#m" /></label>
+      <div class="row">
+        <button id="chordOk" class="primary">Dùng</button>
+        <form method="dialog"><button>Hủy</button></form>
+      </div>
+    </dialog>
+
+    <div id="toast" class="toast" hidden></div>
+
+    <footer>
+      Hát ra nhạc · miễn phí · mã nguồn mở · mọi dữ liệu ở trên máy bạn ·
+      <a href="https://github.com/duynh2405/sang-tac" id="repoLink" target="_blank" rel="noopener">GitHub</a>
+    </footer>
+    <script type="module" src="./src/main.ts"></script>
+  </body>
+</html>
