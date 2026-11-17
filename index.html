@@ -17,7 +17,10 @@
   <body>
     <header class="topbar">
       <img class="logo" src="./icons/icon-192.png" alt="" width="32" height="32" />
-      <input id="title" class="title-input" aria-label="Tên bài hát" />
+      <div class="title-wrap">
+        <input id="title" class="title-input" aria-label="Tên bài hát" />
+        <span id="saveState" class="save-state">✓ Đã lưu trong máy</span>
+      </div>
       <button id="btnUndo" class="icon" title="Hoàn tác" aria-label="Hoàn tác">↶</button>
       <button id="btnInstall" class="install" hidden>⤓ Cài app</button>
       <button id="btnMenu" class="icon" title="Menu" aria-label="Menu">☰</button>
@@ -141,14 +144,17 @@
     <dialog id="menuDialog" class="menu">
       <button data-act="sendLink">🔗 Gửi bài cho bạn bè</button>
       <button data-act="new">＋ Bài mới</button>
-      <button data-act="open">📂 Bài đã lưu</button>
+      <button data-act="open">📂 Bài đã lưu trong máy</button>
+      <button data-act="saveFile">💾 Lưu bài ra file (.sangtac)</button>
+      <button data-act="openFile">📥 Mở file bài (.sangtac)</button>
       <button data-act="sheet">𝄞 Xem sheet &amp; in PDF</button>
       <button data-act="clearChords">🧹 Xóa hợp âm cả bài</button>
-      <button data-act="midi">⬇ Tải file MIDI</button>
+      <button data-act="midi">🎹 Xuất file MIDI (.mid)</button>
       <button data-act="xml">⬇ Tải MusicXML</button>
       <button data-act="share" id="menuShare" hidden>📤 Chia sẻ MIDI</button>
       <div class="menu-foot">Sáng tác <span id="menuVersion"></span> · Made by <b>duyluma</b></div>
       <form method="dialog"><button class="ghost">Đóng</button></form>
+      <input type="file" id="fileInput" accept=".sangtac,.json,application/json" hidden />
     </dialog>
 
     <dialog id="rhymeDialog" class="rhyme-dialog">

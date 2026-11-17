@@ -20,7 +20,7 @@ import {
 } from './compose';
 import { listSongs, saveSong, deleteSong } from './storage';
 import { APP_VERSION, setupInstall, setupUpdates } from './pwa';
-import { decodeSong, sharedCodeInUrl, shareLink } from './share';
+import { decodeSong, pack, sharedCodeInUrl, shareLink, unpack } from './share';
 
 const $ = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id) as T;
 
@@ -65,11 +65,22 @@ const beatsLabel = (t: number) => {
 
 // ---------- lưu ----------
 let saveTimer: number | null = null;
+function setSaveState(kind: 'ok' | 'busy' | 'err') {
+  const el = $('saveState');
+  el.className = 'save-state' + (kind === 'ok' ? '' : ' ' + kind);
+  el.textContent = kind === 'ok' ? '✓ Đã lưu trong máy' : kind === 'busy' ? 'Đang lưu…' : '⚠ Chưa lưu được';
+}
+
 function persist() {
   if (saveTimer) clearTimeout(saveTimer);
+  setSaveState('busy');
   saveTimer = window.setTimeout(() => {
     cs.updated = Date.now();
-    if (!saveSong(cs)) toast('Không lưu được trên trình duyệt này.');
+    if (saveSong(cs)) setSaveState('ok');
+    else {
+      setSaveState('err');
+      toast('Không lưu được trên trình duyệt này. Hãy dùng ☰ → Lưu bài ra file.');
+    }
   }, 300);
 }
 
@@ -726,6 +737,31 @@ function openChordQuick(i: number) {
   ($('chordQuick') as HTMLDialogElement).showModal();
 }
 
+// ---------- lưu / mở file bài ----------
+function saveToFile() {
+  if (cur !== null && dirty) commitDraft(false);
+  const data = JSON.stringify({ app: 'sang-tac', ...pack(cs) });
+  download(data, 'application/json', `${safeName()}.sangtac`);
+  toast('Đã lưu file bài. Mở lại bằng ☰ → Mở file bài, trên máy nào cũng được.', 4500);
+}
+
+async function openFromFile(f: File) {
+  try {
+    const o = JSON.parse(await f.text());
+    const got = unpack(o);
+    if (cur !== null && dirty) commitDraft(false);
+    saveSong(cs);
+    cs = got;
+    saveSong(cs);
+    undoStack.length = 0;
+    closeEditor(false);
+    renderAll();
+    toast(`Đã mở bài «${got.title}» (lưu thành một bài riêng trong máy).`, 4500);
+  } catch {
+    toast('File này không phải file bài của app Sáng tác.', 4500);
+  }
+}
+
 // ---------- gửi bài qua link ----------
 async function openLinkDialog() {
   if (cur !== null && dirty) commitDraft(false);
@@ -1036,6 +1072,13 @@ function bind() {
     toast('Đã gợi ý hợp âm. Bấm vào chữ để đổi nếu muốn.');
   };
 
+  ($('fileInput') as HTMLInputElement).onchange = (e) => {
+    const inp = e.target as HTMLInputElement;
+    const f = inp.files?.[0];
+    inp.value = '';
+    if (f) void openFromFile(f);
+  };
+
   // theo câu / hợp âm
   $('lmCopyFrom').onclick = () => openCopy('from');
   $('lmCopyTo').onclick = () => openCopy('to');
@@ -1159,6 +1202,8 @@ function bind() {
     if (!act) return;
     ($('menuDialog') as HTMLDialogElement).close();
     if (act === 'sendLink') void openLinkDialog();
+    else if (act === 'saveFile') saveToFile();
+    else if (act === 'openFile') ($('fileInput') as HTMLInputElement).click();
     else if (act === 'clearChords') clearChords(null);
     else if (act === 'new') newSongAction();
     else if (act === 'open') openSongs();

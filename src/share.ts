@@ -18,7 +18,7 @@ async function pipe(bytes: Uint8Array, stream: CompressionStream | Decompression
 const canZip = () => typeof CompressionStream !== 'undefined';
 
 /** Dạng gọn của bài: mỗi chữ là một mảng [chữ, nốt, độ dài, nghỉ, gốc HA, loại HA, xuống dòng, xong]. */
-function pack(cs: ComposeSong) {
+export function pack(cs: ComposeSong) {
   return {
     v: 1,
     t: cs.title,
@@ -32,7 +32,7 @@ function pack(cs: ComposeSong) {
   };
 }
 
-function unpack(o: any): ComposeSong {
+export function unpack(o: any): ComposeSong {
   if (!o || o.v !== 1 || !Array.isArray(o.w)) throw new Error('bad');
   const num = (x: unknown, d: number) => (typeof x === 'number' && isFinite(x) ? x : d);
   const words: Word[] = o.w.map((a: any[]) => ({
