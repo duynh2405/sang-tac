@@ -547,6 +547,8 @@ function renderSlurTabs() {
 
 // ---------- sửa lời từng câu ----------
 let editLine = 0;
+/** null = đang sửa câu; còn không: thêm câu mới phía trên/dưới câu editLine */
+let insertWhere: 'above' | 'below' | null = null;
 
 function openLineEdit(n: number) {
   closeEditor();
@@ -554,7 +556,12 @@ function openLineEdit(n: number) {
   const r = lineRanges()[n];
   if (!r) return;
   editLine = n;
+  insertWhere = null;
   $('leTitle').textContent = `Sửa lời câu ${n + 1}`;
+  $('leHint').textContent =
+    'Chữ nào giữ nguyên thì giữ nốt và hợp âm. Chữ mới thêm sẽ chưa có nốt. Xuống dòng để tách thành nhiều câu.';
+  $('leDelete').hidden = false;
+  $('leSave').textContent = 'Lưu';
   const ta = $('leText') as HTMLTextAreaElement;
   ta.value = cs.words.slice(r.first, r.last + 1).map((w) => w.text).join(' ');
   ($('lineEditDialog') as HTMLDialogElement).showModal();
@@ -562,7 +569,47 @@ function openLineEdit(n: number) {
   ta.setSelectionRange(ta.value.length, ta.value.length);
 }
 
+function openLineInsert(n: number, where: 'above' | 'below') {
+  closeEditor();
+  stopPlay();
+  if (!lineRanges()[n]) return;
+  editLine = n;
+  insertWhere = where;
+  $('leTitle').textContent = where === 'above' ? `Thêm câu mới trước câu ${n + 1}` : `Thêm câu mới sau câu ${n + 1}`;
+  $('leHint').textContent = 'Gõ lời câu mới. Xuống dòng để thêm nhiều câu một lúc. Câu mới chưa có nốt.';
+  $('leDelete').hidden = true;
+  $('leSave').textContent = 'Thêm';
+  const ta = $('leText') as HTMLTextAreaElement;
+  ta.value = '';
+  ($('lineEditDialog') as HTMLDialogElement).showModal();
+  ta.focus();
+}
+
+function saveLineInsert() {
+  const rs = lineRanges();
+  const r = rs[editLine];
+  if (!r || !insertWhere) return;
+  const fresh = relyric([], ($('leText') as HTMLTextAreaElement).value);
+  if (!fresh.length) return toast('Hãy gõ lời cho câu mới.');
+  const blanks = blankLinesMap();
+  snapshot();
+  const at = insertWhere === 'above' ? r.first : r.last + 1;
+  const atEnd = at >= cs.words.length;
+  if (atEnd) cs.words[cs.words.length - 1].br = true; // câu cuối giờ phải xuống dòng
+  fresh[fresh.length - 1].br = !atEnd;
+  cs.words.splice(at, 0, ...fresh);
+  const m = new Map<number, number>();
+  blanks.forEach((v, k) => m.set(k >= at ? k + fresh.length : k, v));
+  rebuildLyrics(m);
+  persist();
+  ($('lineEditDialog') as HTMLDialogElement).close();
+  const nLines = fresh.filter((w) => w.br).length + (atEnd ? 1 : 0);
+  toast(`Đã thêm ${nLines > 1 ? nLines + ' câu' : 'câu'} mới. Chọn nốt cho chữ đầu tiên nhé.`, 4000);
+  openEditor(at);
+}
+
 function saveLineEdit() {
+  if (insertWhere) return saveLineInsert();
   const r = lineRanges()[editLine];
   if (!r) return;
   const text = ($('leText') as HTMLTextAreaElement).value;
@@ -1513,6 +1560,14 @@ function bind() {
     openLineEdit(menuLine);
   };
   $('leSave').onclick = saveLineEdit;
+  $('lmAddAbove').onclick = () => {
+    ($('lineMenu') as HTMLDialogElement).close();
+    openLineInsert(menuLine, 'above');
+  };
+  $('lmAddBelow').onclick = () => {
+    ($('lineMenu') as HTMLDialogElement).close();
+    openLineInsert(menuLine, 'below');
+  };
   $('leDelete').onclick = () => {
     const ta = $('leText') as HTMLTextAreaElement;
     const keep = ta.value;

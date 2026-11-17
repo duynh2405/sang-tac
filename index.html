@@ -209,8 +209,10 @@
     <dialog id="lineMenu" class="menu">
       <div class="menu-title" id="lmTitle"></div>
       <button id="lmEditLine">✎ Sửa lời câu này</button>
+      <button id="lmAddAbove">＋ Thêm câu mới phía trên</button>
+      <button id="lmAddBelow">＋ Thêm câu mới phía dưới</button>
       <button id="lmCopyFrom">📋 Lấy nốt &amp; nhịp từ câu khác…</button>
-      <button id="lmCopyTo">📤 Chép nốt &amp; nhịp của câu này sang câu khác…</button>
+      <button id="lmCopyTo">📤 Chép nốt &amp; nhịp sang câu khác…</button>
       <button id="lmClearChords">🧹 Xóa hợp âm của câu này</button>
       <button id="lmClearNotes">↺ Xóa nốt của câu này</button>
       <button id="lmClearAllChords">🧹 Xóa hợp âm cả bài</button>
@@ -220,9 +222,7 @@
     <dialog id="lineEditDialog" class="line-edit">
       <h3 id="leTitle">Sửa lời câu</h3>
       <textarea id="leText" rows="2" autocomplete="off" spellcheck="false"></textarea>
-      <p class="hint">
-        Chữ nào giữ nguyên thì giữ nốt và hợp âm. Chữ mới thêm sẽ chưa có nốt. Xuống dòng để tách thành nhiều câu.
-      </p>
+      <p class="hint" id="leHint"></p>
       <div class="row">
         <button id="leDelete" class="danger-ghost">🗑 Xóa câu</button>
         <button id="leRhyme" class="ghost" title="Tra vần">🔎 Vần</button>
