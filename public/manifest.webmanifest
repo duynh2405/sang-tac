@@ -1,7 +1,7 @@
 {
-  "name": "Hát ra nhạc – hát vài câu, ra sheet piano",
-  "short_name": "Hát ra nhạc",
-  "description": "Hát vài câu, app tự tạo giai điệu, hợp âm piano và sheet nhạc kèm lời tiếng Việt.",
+  "name": "Sáng tác – sổ viết nhạc theo lời",
+  "short_name": "Sáng tác",
+  "description": "Gõ lời, chọn nốt cho từng chữ, đặt hợp âm và nghe thử bản demo piano.",
   "lang": "vi",
   "id": "./",
   "start_url": "./",

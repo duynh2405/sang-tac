@@ -3,237 +3,146 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-    <meta name="description" content="Hát vài câu, app tự tạo giai điệu, hợp âm piano và sheet nhạc kèm lời tiếng Việt. Miễn phí, chạy ngay trên trình duyệt." />
+    <meta name="description" content="Sổ sáng tác nhạc: gõ lời, chọn nốt cho từng chữ, đặt hợp âm và nghe thử bản demo piano. Miễn phí." />
     <meta name="theme-color" content="#4f46e5" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="mobile-web-app-capable" content="yes" />
-    <meta name="apple-mobile-web-app-title" content="Hát ra nhạc" />
+    <meta name="apple-mobile-web-app-title" content="Sáng tác" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <link rel="manifest" href="./manifest.webmanifest" />
     <link rel="icon" type="image/png" href="./icons/favicon-64.png" />
     <link rel="apple-touch-icon" href="./icons/apple-touch-icon.png" />
-    <title>Hát ra nhạc – hát vài câu, ra sheet piano</title>
+    <title>Sáng tác – sổ viết nhạc theo lời</title>
   </head>
   <body>
     <header class="topbar">
-      <div class="brand">
-        <img src="./icons/icon-192.png" alt="" width="34" height="34" />
-        <div class="brand-text">
-          <b>Hát ra nhạc</b>
-          <span class="ver" id="appVersion">v</span>
-        </div>
-      </div>
+      <img class="logo" src="./icons/icon-192.png" alt="" width="32" height="32" />
       <input id="title" class="title-input" aria-label="Tên bài hát" />
-      <div class="top-actions">
-        <button id="btnInstall" class="install" hidden>⤓ Cài app</button>
-        <button id="btnNew" class="icon-btn" title="Bài mới" aria-label="Bài mới">＋<span>Bài mới</span></button>
-        <button id="btnOpen" class="icon-btn" title="Bài đã lưu" aria-label="Bài đã lưu">☰<span>Đã lưu</span></button>
-      </div>
+      <button id="btnUndo" class="icon" title="Hoàn tác" aria-label="Hoàn tác">↶</button>
+      <button id="btnInstall" class="install" hidden>⤓ Cài app</button>
+      <button id="btnMenu" class="icon" title="Menu" aria-label="Menu">☰</button>
     </header>
 
-    <main>
-      <!-- 1. THU ÂM -->
-      <section class="card hero" id="recordCard">
-        <div class="card-head">
-          <span class="step">1</span>
-          <div>
-            <h2>Hát vào đây</h2>
-            <p class="sub">Hát 1–2 câu, app sẽ ghi lại giai điệu và tạo đệm piano.</p>
-          </div>
+    <div class="settings" id="settings">
+      <div class="field">
+        <span class="lbl">Tốc độ</span>
+        <div class="stepper">
+          <button id="tempoDown" aria-label="Chậm hơn">−</button>
+          <input id="tempo" type="number" min="40" max="200" value="80" inputmode="numeric" aria-label="Tốc độ BPM" />
+          <button id="tempoUp" aria-label="Nhanh hơn">+</button>
         </div>
-
-        <div class="settings">
-          <div class="field">
-            <span class="label">Tốc độ</span>
-            <div class="stepper">
-              <button id="tempoDown" aria-label="Chậm hơn">−</button>
-              <input id="tempo" type="number" min="40" max="200" value="80" inputmode="numeric" />
-              <button id="tempoUp" aria-label="Nhanh hơn">+</button>
-            </div>
-            <span class="unit">BPM</span>
-          </div>
-          <div class="field">
-            <span class="label">Nhịp</span>
-            <div class="seg" id="meterSeg" role="radiogroup">
-              <button data-v="2">2/4</button><button data-v="3">3/4</button><button data-v="4">4/4</button>
-            </div>
-            <select id="meter" hidden>
-              <option value="4">4/4</option>
-              <option value="3">3/4</option>
-              <option value="2">2/4</option>
-            </select>
-          </div>
-          <div class="field">
-            <span class="label">Gõ nhịp</span>
-            <select id="clickMode">
-              <option value="countin">Chỉ đếm vào, rồi im lặng</option>
-              <option value="always">Đếm vào + gõ suốt khi hát</option>
-              <option value="off">Tắt hoàn toàn</option>
-            </select>
-          </div>
+      </div>
+      <div class="field">
+        <span class="lbl">Nhịp</span>
+        <div class="seg" id="meterSeg">
+          <button data-v="2">2/4</button><button data-v="3">3/4</button><button data-v="4">4/4</button>
         </div>
+      </div>
+      <div class="field">
+        <span class="lbl">Đệm</span>
+        <select id="lh" aria-label="Kiểu đệm tay trái">
+          <option value="broken">Bass – hợp âm</option>
+          <option value="ballad">Rải (ballad)</option>
+          <option value="block">Hợp âm ngân</option>
+          <option value="waltz">Valse</option>
+        </select>
+      </div>
+      <div class="field">
+        <span class="lbl">Giọng</span>
+        <select id="key" aria-label="Giọng"></select>
+      </div>
+    </div>
 
-        <div class="record-zone">
-          <button id="btnRecord" class="record" aria-label="Thu âm">
-            <span class="ring"></span>
-            <span class="core"><span class="dot"></span></span>
-          </button>
-          <div id="recLabel" class="rec-label">Bấm để thu</div>
-          <div class="beats" id="beats" aria-hidden="true"></div>
-          <div class="meter-bar"><div id="level"></div></div>
-          <p class="hint center" id="recHint"></p>
-        </div>
-
-        <details class="more">
-          <summary>Tùy chọn khác</summary>
-          <div class="row wrap">
-            <label>Độ chi tiết nhịp
-              <select id="grid">
-                <option value="2">Móc đơn (1/8)</option>
-                <option value="1">Móc kép (1/16)</option>
-              </select>
-            </label>
-            <label class="check"><input id="legato" type="checkbox" checked /> Nối liền khoảng nghỉ ngắn</label>
-            <label class="file-btn">🎵 Tải file ghi âm có sẵn<input id="file" type="file" accept="audio/*" hidden /></label>
-          </div>
-        </details>
-        <div class="progress" id="anaProgress" hidden><div></div><span>Đang phân tích giọng hát…</span></div>
-      </section>
-
-      <!-- 2. NGHE & CHỈNH -->
-      <section class="card" id="editCard">
-        <div class="card-head">
-          <span class="step">2</span>
-          <div>
-            <h2>Nghe &amp; chỉnh sửa</h2>
-            <p class="sub">Kéo nốt để sửa cao độ, thời điểm; kéo mép phải để đổi độ dài.</p>
-          </div>
-        </div>
-
-        <div class="player-bar">
-          <button id="btnPlay" class="play-btn" aria-label="Phát">▶</button>
-          <button id="btnStop" class="round" aria-label="Dừng">■</button>
-          <div class="toggles">
-            <label class="chip"><input id="playMelody" type="checkbox" checked /><span>🎵 Giai điệu</span></label>
-            <label class="chip"><input id="playAcc" type="checkbox" checked /><span>🎹 Đệm</span></label>
-          </div>
-          <button id="btnVoice" class="ghost small">🎤 Giọng gốc</button>
-        </div>
-
-        <div class="settings compact">
-          <label class="field"><span class="label">Giọng</span><select id="key"></select></label>
-          <label class="field"><span class="label">Kiểu đệm</span>
-            <select id="lh">
-              <option value="broken">Bass – hợp âm</option>
-              <option value="ballad">Rải (ballad)</option>
-              <option value="block">Hợp âm ngân</option>
-              <option value="waltz">Valse (3/4)</option>
-            </select>
-          </label>
-          <label class="field"><span class="label">Hợp âm</span>
-            <select id="cpm">
-              <option value="1">1 / ô nhịp</option>
-              <option value="2">2 / ô nhịp</option>
-            </select>
-          </label>
-          <button id="btnReharm" class="ghost small" title="Gán lại hợp âm tự động">↻ Hòa âm lại</button>
-        </div>
-
-        <div class="toolbar">
-          <div class="tgroup">
-            <button id="btnUndo" title="Hoàn tác (Ctrl+Z)" aria-label="Hoàn tác">↶</button>
-            <button id="btnRedo" title="Làm lại (Ctrl+Y)" aria-label="Làm lại">↷</button>
-          </div>
-          <div class="tgroup" aria-label="Sửa nốt đang chọn">
-            <button id="nUp" title="Lên nửa cung (↑)" aria-label="Lên nửa cung">▲</button>
-            <button id="nDown" title="Xuống nửa cung (↓)" aria-label="Xuống nửa cung">▼</button>
-            <button id="nLeft" title="Sớm hơn (←)" aria-label="Sớm hơn">◀</button>
-            <button id="nRight" title="Muộn hơn (→)" aria-label="Muộn hơn">▶</button>
-            <button id="nShorter" title="Ngắn hơn (Shift+←)" aria-label="Ngắn hơn">−</button>
-            <button id="nLonger" title="Dài hơn (Shift+→)" aria-label="Dài hơn">+</button>
-            <button id="nSplit" title="Tách đôi nốt" aria-label="Tách nốt">✂</button>
-            <button id="nMerge" title="Gộp với nốt sau" aria-label="Gộp nốt">⛓</button>
-            <button id="nDelete" title="Xóa nốt (Delete)" aria-label="Xóa nốt" class="danger">🗑</button>
-          </div>
-          <div class="tgroup" aria-label="Cả bài">
-            <button id="allDown" title="Hạ tông cả bài" aria-label="Hạ tông">♭</button>
-            <button id="allUp" title="Nâng tông cả bài" aria-label="Nâng tông">♯</button>
-            <button id="allLeft" title="Dịch cả bài sớm hơn" aria-label="Dịch sớm">⇤</button>
-            <button id="allRight" title="Dịch cả bài muộn hơn" aria-label="Dịch muộn">⇥</button>
-          </div>
-          <label class="zoom" title="Thu phóng">🔍<input id="zoom" type="range" min="6" max="28" value="12" /></label>
-        </div>
-
-        <div class="roll-wrap" id="roll"></div>
-        <p class="hint">Nhấn đúp (hoặc chạm 2 lần) vào chỗ trống để thêm nốt. Bấm tên hợp âm phía trên để đổi hợp âm.</p>
-
-        <div class="inspector" id="inspector" hidden>
-          <b id="insName"></b>
-          <label>Lời <input id="insLyric" placeholder="một chữ" /></label>
+    <main class="board">
+      <!-- nhập lời -->
+      <section id="lyricsEdit" class="panel" hidden>
+        <h2>Lời bài hát</h2>
+        <p class="sub">Gõ lời, mỗi câu một dòng. Mỗi chữ sẽ thành một nút để bạn chọn nốt.</p>
+        <textarea id="lyrics" rows="7" placeholder="Ví dụ:&#10;Chiều nay mưa bay trên phố&#10;Nhớ em ngày xưa bên hồ"></textarea>
+        <div class="row">
+          <button id="lyricsCancel" class="ghost" hidden>Hủy</button>
+          <button id="lyricsDone" class="primary big">Xong, chọn nốt →</button>
         </div>
       </section>
 
-      <!-- 3. LỜI -->
-      <section class="card" id="lyricCard">
-        <div class="card-head">
-          <span class="step">3</span>
-          <div>
-            <h2>Lời bài hát</h2>
-            <p class="sub">Gõ lời, hoặc để AI nghe lời từ giọng hát. Mỗi chữ ứng với một nốt.</p>
+      <!-- bài hát -->
+      <section id="songView" class="panel" hidden>
+        <div class="view-head">
+          <div class="status" id="status"></div>
+          <div class="view-actions">
+            <button id="btnSuggest" class="ghost small" title="Tự gợi ý hợp âm theo giai điệu">✨ Gợi ý hợp âm</button>
+            <button id="btnEditLyrics" class="ghost small">✎ Sửa lời</button>
           </div>
         </div>
-        <textarea id="lyrics" rows="3" placeholder="Ví dụ: Em ơi Hà Nội phố…"></textarea>
-        <div class="row wrap">
-          <button id="btnAssign" class="primary">Gán lời vào nốt</button>
-          <button id="btnAsr">🤖 Nhận lời bằng AI</button>
-          <select id="asrModel" aria-label="Mô hình AI">
-            <option value="base">Nhanh (~80 MB)</option>
-            <option value="small">Chính xác hơn (~250 MB)</option>
-          </select>
-        </div>
-        <div class="progress" id="asrProgress" hidden><div></div><span></span></div>
-        <p class="hint" id="lyricMsg">
-          AI chạy ngay trên máy bạn, không gửi giọng hát đi đâu. Lần đầu cần tải mô hình; lời nhận được là bản nháp để bạn sửa.
-        </p>
-        <div id="toneBox" class="tone-box" hidden>
-          <h3>💡 Gợi ý về dấu thanh</h3>
-          <p class="hint">Giai điệu đi ngược hướng dấu tiếng Việt thì hát lên dễ bị nghe thành chữ khác. Bấm vào gợi ý để tới nốt đó.</p>
-          <ul id="toneList"></ul>
-        </div>
-      </section>
-
-      <!-- 4. SHEET -->
-      <section class="card" id="sheetCard">
-        <div class="card-head">
-          <span class="step">4</span>
-          <div>
-            <h2>Sheet nhạc &amp; tải về</h2>
-            <p class="sub">MIDI gồm 2 track: tay phải giai điệu, tay trái hợp âm.</p>
-          </div>
-        </div>
-        <div class="row wrap">
-          <button id="btnMidi" class="primary">⬇ MIDI</button>
-          <button id="btnPdf">🖨 PDF / In</button>
-          <button id="btnXml">⬇ MusicXML</button>
-          <button id="btnWav" class="ghost">⬇ Giọng hát (WAV)</button>
-          <button id="btnShare" class="ghost" hidden>📤 Chia sẻ</button>
-        </div>
-        <div id="sheet" class="sheet"><p class="hint">Hát xong, sheet nhạc sẽ hiện ở đây.</p></div>
+        <div id="lines" class="lines"></div>
+        <p class="hint">Bấm vào chữ để chọn nốt, độ dài và hợp âm. Hợp âm hiện phía trên chữ.</p>
       </section>
     </main>
 
-    <footer>
-      <div><b>Hát ra nhạc</b> <span id="footVersion"></span> · Made by <b>duyluma</b></div>
-      <div class="muted">Miễn phí · mã nguồn mở · mọi dữ liệu nằm trên máy bạn · <a href="https://github.com/duynh2405/sang-tac" target="_blank" rel="noopener">GitHub</a></div>
-    </footer>
+    <!-- thanh nghe thử -->
+    <div class="playerbar" id="playerbar">
+      <button id="btnPlay" class="play" aria-label="Nghe thử">▶</button>
+      <div class="pinfo">
+        <div class="ptitle">Nghe thử bản demo</div>
+        <div class="ptrack"><div id="pfill"></div></div>
+      </div>
+      <label class="mini"><input id="playAcc" type="checkbox" checked /> Đệm</label>
+      <button id="btnSheet" class="small">𝄞 Sheet</button>
+    </div>
 
-    <!-- thanh thao tác nhanh trên điện thoại -->
-    <nav class="dock" aria-label="Thao tác nhanh">
-      <button id="dockRec" class="dock-rec"><span class="dot"></span><span>Thu</span></button>
-      <button id="dockPlay"><span class="ico">▶</span><span>Phát</span></button>
-      <button id="dockEdit"><span class="ico">✎</span><span>Sửa</span></button>
-      <button id="dockSheet"><span class="ico">𝄞</span><span>Sheet</span></button>
-    </nav>
+    <!-- bảng chọn nốt cho một chữ -->
+    <div id="editor" class="editor" hidden role="dialog" aria-label="Chọn nốt">
+      <div class="ed-head">
+        <button id="edPrev" class="icon" aria-label="Chữ trước">◀</button>
+        <div class="ed-word">
+          <span id="edIndex"></span>
+          <b id="edWord"></b>
+        </div>
+        <button id="edNext" class="icon" aria-label="Chữ sau">▶</button>
+        <button id="edClose" class="icon" aria-label="Đóng">✕</button>
+      </div>
+
+      <div class="ed-row">
+        <span class="lbl">Nốt</span>
+        <span id="edNote" class="notename"></span>
+        <div class="oct">
+          <button id="octDown" class="small">− 8va</button>
+          <button id="octUp" class="small">+ 8va</button>
+        </div>
+      </div>
+      <div class="kb-wrap" id="kbWrap"><div id="keyboard" class="keyboard"></div></div>
+
+      <div class="ed-row col">
+        <span class="lbl">Độ dài</span>
+        <div id="durChips" class="chips"></div>
+      </div>
+      <div class="ed-row col">
+        <span class="lbl">Nghỉ sau chữ</span>
+        <div id="restChips" class="chips"></div>
+      </div>
+      <div class="ed-row col">
+        <span class="lbl">Hợp âm <small id="edChordNow"></small></span>
+        <div id="chordChips" class="chips"></div>
+      </div>
+      <p id="edWarn" class="ed-warn" hidden></p>
+
+      <div class="ed-actions">
+        <button id="edListen">▶ Nghe</button>
+        <button id="edClear" class="ghost">Bỏ nốt</button>
+        <button id="edOk" class="ok">OK, chữ tiếp →</button>
+      </div>
+    </div>
+
+    <dialog id="menuDialog" class="menu">
+      <button data-act="new">＋ Bài mới</button>
+      <button data-act="open">📂 Bài đã lưu</button>
+      <button data-act="sheet">𝄞 Xem sheet &amp; in PDF</button>
+      <button data-act="midi">⬇ Tải file MIDI</button>
+      <button data-act="xml">⬇ Tải MusicXML</button>
+      <button data-act="share" id="menuShare" hidden>📤 Chia sẻ MIDI</button>
+      <div class="menu-foot">Sáng tác <span id="menuVersion"></span> · Made by <b>duyluma</b></div>
+      <form method="dialog"><button class="ghost">Đóng</button></form>
+    </dialog>
 
     <dialog id="songsDialog">
       <h3>Bài đã lưu trên máy này</h3>
@@ -241,10 +150,21 @@
       <form method="dialog"><button>Đóng</button></form>
     </dialog>
 
+    <dialog id="sheetDialog" class="sheet-dialog">
+      <div class="sheet-head">
+        <b>Sheet nhạc</b>
+        <div class="row">
+          <button id="sheetPdf" class="primary small">🖨 In / PDF</button>
+          <button id="sheetMidi" class="small">⬇ MIDI</button>
+          <form method="dialog"><button class="small">Đóng</button></form>
+        </div>
+      </div>
+      <div id="sheet" class="sheet"></div>
+    </dialog>
+
     <dialog id="chordDialog">
-      <h3>Đổi hợp âm</h3>
-      <div id="chordChoices" class="chord-choices"></div>
-      <label>Hoặc gõ hợp âm <input id="chordInput" placeholder="vd: Am, F, G7, C#m" /></label>
+      <h3>Hợp âm khác</h3>
+      <label>Gõ tên hợp âm <input id="chordInput" placeholder="vd: Am, F, G7, C#m, Bb" /></label>
       <div class="row">
         <button id="chordOk" class="primary">Dùng</button>
         <form method="dialog"><button>Hủy</button></form>
@@ -252,16 +172,17 @@
     </dialog>
 
     <dialog id="iosDialog">
-      <h3>Cài Hát ra nhạc ra màn hình chính</h3>
+      <h3>Cài app ra màn hình chính</h3>
       <ol class="steps">
         <li>Mở trang này bằng <b>Safari</b>.</li>
-        <li>Bấm nút <b>Chia sẻ</b> <span class="kbd">⬆︎</span> ở thanh dưới.</li>
-        <li>Chọn <b>Thêm vào MH chính</b> (Add to Home Screen), rồi bấm <b>Thêm</b>.</li>
+        <li>Bấm nút <b>Chia sẻ</b> ở thanh dưới.</li>
+        <li>Chọn <b>Thêm vào MH chính</b>, rồi bấm <b>Thêm</b>.</li>
       </ol>
       <form method="dialog"><button class="primary">Đã hiểu</button></form>
     </dialog>
 
     <div id="toast" class="toast" hidden></div>
+    <div class="credit">Sáng tác <span id="appVersion"></span> · Made by duyluma</div>
     <script type="module" src="./src/main.ts"></script>
   </body>
 </html>

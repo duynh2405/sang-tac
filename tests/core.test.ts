@@ -1,7 +1,5 @@
 import { describe, expect, it } from 'vitest';
 import { DOMParser } from '@xmldom/xmldom';
-import { analyzePitch, ANALYSIS_SR, midiToHz } from '../src/audio/pitch';
-import { framesToRawNotes, quantize } from '../src/audio/segment';
 import { newSong, TPB, type Note } from '../src/model';
 import { detectKey, chordName } from '../src/music/theory';
 import { harmonize } from '../src/music/harmonize';
@@ -9,66 +7,6 @@ import { songToMusicXml } from '../src/music/musicxml';
 import { songToMidi } from '../src/music/midi';
 import { assignLyrics, checkTones, splitSyllables, toneOf } from '../src/lyrics/vietnamese';
 import { generateLeftHand } from '../src/music/accompaniment';
-
-/** Tổng hợp "giọng hát" có bồi âm, rung nhẹ, ngắt giữa các nốt. */
-function synth(notes: { midi: number; sec: number; gap?: number }[], sr = ANALYSIS_SR, lead = 0.5): Float32Array {
-  const total = lead + notes.reduce((s, n) => s + n.sec + (n.gap ?? 0.04), 0) + 0.5;
-  const out = new Float32Array(Math.ceil(total * sr));
-  let t = lead;
-  let phase = 0;
-  for (const n of notes) {
-    const f0 = midiToHz(n.midi);
-    const len = Math.floor(n.sec * sr);
-    const start = Math.floor(t * sr);
-    for (let i = 0; i < len; i++) {
-      const tt = i / sr;
-      const vib = 1 + 0.004 * Math.sin(2 * Math.PI * 5.5 * tt);
-      phase += (2 * Math.PI * f0 * vib) / sr;
-      const env = Math.min(1, i / (0.02 * sr)) * Math.min(1, (len - i) / (0.03 * sr));
-      const s = Math.sin(phase) + 0.5 * Math.sin(2 * phase) + 0.25 * Math.sin(3 * phase) + 0.12 * Math.sin(4 * phase);
-      out[start + i] = 0.25 * env * s;
-    }
-    t += n.sec + (n.gap ?? 0.04);
-  }
-  // nhiễu nền nhẹ
-  for (let i = 0; i < out.length; i++) out[i] += (Math.random() - 0.5) * 0.002;
-  return out;
-}
-
-describe('dò cao độ', () => {
-  it('nhận đúng nốt A3 (220 Hz)', () => {
-    const sig = synth([{ midi: 57, sec: 1 }]);
-    const frames = analyzePitch(sig).filter((f) => f.midi !== null);
-    const mids = frames.map((f) => f.midi!).sort((a, b) => a - b);
-    expect(Math.abs(mids[mids.length >> 1] - 57)).toBeLessThan(0.15);
-  });
-
-  it('tách và gắn nhịp một câu giai điệu, kể cả nốt lặp cùng cao độ', () => {
-    const tempo = 90;
-    const beat = 60 / tempo;
-    // Đô Đô Sol Sol La La Sol(2 phách) — giống "Twinkle"
-    const seq = [60, 60, 67, 67, 69, 69].map((m) => ({ midi: m, sec: beat - 0.06, gap: 0.06 }));
-    seq.push({ midi: 67, sec: 2 * beat - 0.06, gap: 0.06 });
-    const lead = 0.5;
-    const sig = synth(seq, ANALYSIS_SR, lead);
-    const { notes: raw } = framesToRawNotes(analyzePitch(sig));
-    const q = quantize(raw, { tempo, beatsPerMeasure: 4, t0: lead, grid: 2, legato: true });
-    expect(q.map((n) => n.midi)).toEqual([60, 60, 67, 67, 69, 69, 67]);
-    expect(q.map((n) => n.start)).toEqual([0, 4, 8, 12, 16, 20, 24]);
-    expect(q[6].dur).toBe(8);
-  });
-
-  it('hát lệch tông chung (cao 30 cent) vẫn ra đúng nốt', () => {
-    const tempo = 80;
-    const beat = 60 / tempo;
-    const seq = [64.3, 62.3, 60.3, 62.3].map((m) => ({ midi: m, sec: beat - 0.05, gap: 0.05 }));
-    const sig = synth(seq);
-    const { notes: raw, tuning } = framesToRawNotes(analyzePitch(sig));
-    expect(Math.abs(tuning - 0.3)).toBeLessThan(0.1);
-    const q = quantize(raw, { tempo, beatsPerMeasure: 4, t0: 0.5, grid: 2, legato: true });
-    expect(q.map((n) => n.midi)).toEqual([64, 62, 60, 62]);
-  });
-});
 
 const twinkle: Note[] = [60, 60, 67, 67, 69, 69, 67, 65, 65, 64, 64, 62, 62, 60].map((m, i) => ({
   start: i * TPB + (i >= 7 ? TPB : 0),
@@ -182,5 +120,59 @@ describe('lời tiếng Việt', () => {
       { start: 8, dur: 4, midi: 64, lyric: 'đây' },
     ];
     expect(checkTones(notes)).toEqual([]);
+  });
+});
+
+import { relyric, suggestChords, toSong, tokenize, newCompose, demoCompose, wordStarts } from '../src/compose';
+
+describe('sổ sáng tác', () => {
+  it('tách lời thành chữ, giữ xuống dòng', () => {
+    const t = tokenize('Em ơi\nHà Nội phố');
+    expect(t.map((x) => x.text)).toEqual(['Em', 'ơi', 'Hà', 'Nội', 'phố']);
+    expect(t.map((x) => x.br)).toEqual([false, true, false, false, false]);
+  });
+
+  it('sửa lời vẫn giữ nốt của chữ không đổi', () => {
+    const cs = demoCompose();
+    const words = relyric(cs.words, 'Em ơi hãy hát\ncho đời thêm vui mãi mãi');
+    expect(words[0].midi).toBe(cs.words[0].midi);
+    expect(words[3].text).toBe('hát');
+    expect(words[3].midi).toBe(cs.words[5].midi); // "hát" cũ
+    expect(words.length).toBe(10);
+  });
+
+  it('chữ mới thêm vào chưa có nốt', () => {
+    const cs = demoCompose();
+    const words = relyric(cs.words, 'Em ơi ơi hãy cất tiếng hát cho đời thêm vui mãi mãi');
+    expect(words.filter((w) => !w.done).length).toBe(1);
+  });
+
+  it('chuyển sang bài hát: thời điểm, hợp âm, giọng', () => {
+    const cs = demoCompose();
+    const { song, chords } = toSong(cs);
+    expect(song.notes.length).toBe(12);
+    expect(wordStarts(cs.words).slice(0, 4)).toEqual([0, 4, 6, 8]);
+    expect(song.notes[6].start).toBe(32); // sau "hát" 12 + nghỉ 4
+    expect(chords.map((c) => c.start)).toEqual([0, 16, 32, 40, 48]);
+    expect(song.key).toEqual({ tonic: 0, mode: 'major' });
+    const xml = songToMusicXml(song, chords);
+    const errors: string[] = [];
+    new DOMParser({ onError: (_l: string, m: string) => errors.push(m) } as any).parseFromString(xml, 'text/xml');
+    expect(errors).toEqual([]);
+    expect(xml).toContain('<text>cất</text>');
+  });
+
+  it('gợi ý hợp âm đặt hợp âm lên chữ', () => {
+    const cs = demoCompose();
+    cs.words.forEach((w) => (w.chord = null));
+    const words = suggestChords(cs);
+    expect(words[0].chord).toEqual({ root: 0, quality: 'maj' });
+    expect(words.filter((w) => w.chord).length).toBeGreaterThanOrEqual(2);
+  });
+
+  it('bài trống vẫn chuyển được', () => {
+    const { song, chords } = toSong(newCompose());
+    expect(song.notes).toEqual([]);
+    expect(chords).toEqual([]);
   });
 });

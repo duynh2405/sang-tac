@@ -1,51 +1,39 @@
-# 🎹 Hát ra nhạc
+# 🎵 Sáng tác – sổ viết nhạc theo lời
 
-Hát vài câu, app tự tạo **giai điệu**, **hợp âm piano tay trái** và **sheet nhạc piano kèm lời tiếng Việt**.
-Miễn phí, mã nguồn mở, chạy hoàn toàn trên trình duyệt: giọng hát của bạn không bị gửi đi đâu.
+Gõ lời bài hát → mỗi chữ thành một nút → bấm chữ để chọn **nốt** và **độ dài** → bấm **OK** sang chữ tiếp.
+Hợp âm đặt ngay phía trên lời như các trang hợp âm. Viết xong là **nghe thử bản demo piano**:
+tay phải là giai điệu bạn viết, tay trái là hợp âm.
+
+Miễn phí, mã nguồn mở, chạy hoàn toàn trên trình duyệt. Bài hát lưu ngay trên máy bạn.
 
 **Dùng thử:** https://duynh2405.github.io/sang-tac/
 
-## Làm được gì
+## Cách dùng
 
-1. **Hát vào micro** theo máy đếm nhịp (hoặc tải file ghi âm lên).
-2. App nhận **cao độ và nhịp** của từng nốt, tự nhận **giọng** (Đô trưởng, La thứ...).
-3. Tự **hòa âm**: gán hợp âm cho từng ô nhịp, tạo phần đệm tay trái (bass – hợp âm, rải ballad, ngân, valse).
-4. **Nhận lời hát tiếng Việt** bằng AI Whisper chạy ngay trên máy, hoặc gõ lời. Mỗi chữ gán vào một nốt.
-5. **Sửa mọi thứ**: kéo nốt đổi cao độ/thời điểm, kéo mép đổi độ dài, tách/gộp nốt, sửa lời, đổi hợp âm, đổi tông, hoàn tác.
-6. **Gợi ý dấu thanh**: báo chỗ giai điệu đi ngược hướng dấu tiếng Việt (dễ bị nghe sai chữ khi hát).
-7. **Tải về**: file MIDI (2 track: tay phải giai điệu, tay trái hợp âm), MusicXML (mở bằng MuseScore), in hoặc lưu PDF.
+1. Gõ lời, mỗi câu một dòng, rồi bấm **Xong, chọn nốt**.
+2. Với mỗi chữ: bấm phím đàn để chọn nốt, chọn độ dài (đen, móc đơn, trắng…), nghỉ sau chữ nếu cần,
+   và hợp âm nếu muốn đổi hợp âm tại chữ đó. Bấm **OK, chữ tiếp →**.
+3. Bấm **▶** để nghe thử. Bấm **𝄞 Sheet** để xem sheet nhạc, in hoặc lưu PDF.
+4. Menu ☰: bài mới, bài đã lưu, tải MIDI (2 track: tay phải, tay trái), MusicXML.
 
-Bài hát được lưu ngay trên trình duyệt của bạn.
+Mẹo:
+- **✨ Gợi ý hợp âm**: app tự đề xuất hợp âm theo giai điệu, bạn sửa lại tùy ý.
+- **✎ Sửa lời**: sửa lời bất cứ lúc nào, chữ không đổi vẫn giữ nốt đã viết.
+- Trên máy tính: ↑/↓ đổi nốt nửa cung, Enter = OK, ←/→ sang chữ khác, Ctrl+Z hoàn tác.
+- Chữ có nốt màu đỏ: giai điệu đi ngược hướng dấu tiếng Việt, hát lên dễ bị nghe sai chữ.
 
-- **Cài như app**: bấm "Cài app" để đưa ra màn hình chính (Android, máy tính); iPhone dùng Safari → Chia sẻ → Thêm vào MH chính.
-- **Tự cập nhật**: khi có phiên bản mới, app hiện thông báo và tự cập nhật ngay (chờ bạn thu âm xong nếu đang thu).
-- **Gõ nhịp tùy chọn**: chỉ đếm vào, gõ suốt khi hát, hoặc tắt hẳn.
-- Giao diện sáng/tối theo máy, tối ưu cho điện thoại.
+## Cài như app
 
-Made by **duyluma**.
+Bấm **⤓ Cài app** (Android, máy tính). iPhone: Safari → Chia sẻ → Thêm vào MH chính.
+Khi có phiên bản mới, app tự hiện thông báo và cập nhật ngay.
 
 ## Chạy trên máy
 
 ```bash
 npm install
-npm run dev      # mở http://localhost:5173
-npm test         # chạy kiểm thử
-npm run build    # bản build tĩnh trong thư mục dist/
+npm run dev      # http://localhost:5173
+npm test
+npm run build
 ```
 
-## Công nghệ
-
-- Dò cao độ: thuật toán YIN tự viết (TypeScript), chạy trên máy người dùng.
-- Hòa âm: luật nhạc lý + thuật toán Viterbi trên các hợp âm trong giọng.
-- Nhận lời: [Transformers.js](https://github.com/huggingface/transformers.js) với mô hình Whisper (WebGPU/WASM).
-- Sheet nhạc: [OpenSheetMusicDisplay](https://opensheetmusicdisplay.org/) từ MusicXML.
-- Âm thanh piano: [Tone.js](https://tonejs.github.io/) với bộ mẫu Salamander Grand Piano.
-
-## Kế hoạch
-
-- [ ] Bản Android (AAB) đóng gói bằng Capacitor
-- [x] Cài như app (PWA), dùng offline, tự cập nhật
-
-## Giấy phép
-
-MIT
+Made by **duyluma** · Giấy phép MIT

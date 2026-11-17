@@ -1,203 +1,173 @@
 import './styles.css';
-import { TPB, measureTicks, newSong, normalizeNotes, type Chord, type LhPattern, type Note, type Song } from './model';
-import { detectKey, diatonicChords, chordName, keyName, midiName, parseChordName } from './music/theory';
-import { harmonize, fitChordsToSong } from './music/harmonize';
+import { TPB } from './model';
+import { chordName, chordPcs, diatonicChords, keyName, midiName, parseChordName, solfegeName, mod12 } from './music/theory';
 import { songToMusicXml } from './music/musicxml';
 import { songToMidi } from './music/midi';
-import { assignLyrics, checkTones, lyricsFromNotes, type ToneWarning } from './lyrics/vietnamese';
-import { transcribe } from './lyrics/asr';
-import { startRecording, decodeFile, encodeWav, type RecordSession } from './audio/recorder';
-import { transcribeMelody } from './pipeline';
-import { PianoRoll } from './ui/pianoroll';
-import { listSongs, saveSong, deleteSong, saveAudio, loadAudio } from './storage';
+import { checkTones } from './lyrics/vietnamese';
+import {
+  defaultDur,
+  defaultMidi,
+  demoCompose,
+  measureCount,
+  newCompose,
+  relyric,
+  suggestChords,
+  toSong,
+  totalTicks,
+  wordStarts,
+  type ComposeSong,
+  type WordChord,
+} from './compose';
+import { listSongs, saveSong, deleteSong } from './storage';
 import { APP_VERSION, setupInstall, setupUpdates } from './pwa';
-
-// Tải chậm phần nặng (tiếng piano, vẽ sheet) để mở app nhanh hơn
-type PlayerMod = typeof import('./ui/player');
-let playerMod: PlayerMod | null = null;
-async function getPlayer(): Promise<PlayerMod> {
-  if (!playerMod) playerMod = await import('./ui/player');
-  return playerMod;
-}
-const player = {
-  previewNote: (m: number) => void getPlayer().then((p) => p.previewNote(m)),
-  stop: () => playerMod?.stop(),
-  stopVoice: () => playerMod?.stopVoice(),
-  position: () => (playerMod ? playerMod.position() : -1),
-};
 
 const $ = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id) as T;
 
+// Phần nặng (tiếng piano, vẽ sheet) chỉ tải khi cần
+type PlayerMod = typeof import('./ui/player');
+let playerMod: PlayerMod | null = null;
+const getPlayer = async () => (playerMod ??= await import('./ui/player'));
+
 // ---------- trạng thái ----------
-let song: Song = loadLastSong() ?? demoSong();
-let audio16k: Float32Array | null = null;
-let warnings: ToneWarning[] = [];
-const undoStack: string[] = [];
-const redoStack: string[] = [];
-let recSession: RecordSession | null = null;
-let sheetTimer: number | null = null;
+let cs: ComposeSong = listSongs()[0] ?? demoCompose();
+let cur: number | null = null; // chữ đang chọn
+let draft: { midi: number | null; dur: number; rest: number; chord: WordChord | null } | null = null;
+let dirty = false;
 let playing = false;
+const undoStack: string[] = [];
 
-function loadLastSong(): Song | null {
-  const all = listSongs();
-  return all.length ? all[0] : null;
-}
+const DURS: [number, string, string][] = [
+  [1, 'Móc kép', '¼'],
+  [2, 'Móc đơn', '½'],
+  [3, 'Móc đơn chấm', '¾'],
+  [4, 'Đen', '1 phách'],
+  [6, 'Đen chấm', '1½'],
+  [8, 'Trắng', '2 phách'],
+  [12, 'Trắng chấm', '3 phách'],
+  [16, 'Tròn', '4 phách'],
+];
+const RESTS: [number, string][] = [
+  [0, 'Không'],
+  [2, '½ phách'],
+  [4, '1 phách'],
+  [8, '2 phách'],
+  [16, '4 phách'],
+];
+const KB_LO = 48; // C3
+const KB_HI = 83; // B5
 
-function demoSong(): Song {
-  // ví dụ để người mới thấy app làm được gì
-  const mel = [64, 67, 69, 67, 64, 62, 60, 62, 64, 67, 64, 62, 60];
-  const lyr = 'Em ơi hãy cất tiếng hát cho đời thêm vui mãi mãi'.split(' ');
-  const durs = [2, 2, 4, 2, 2, 4, 2, 2, 4, 2, 2, 4, 8];
-  let t = 0;
-  const notes: Note[] = mel.map((m, i) => {
-    const n = { start: t, dur: durs[i], midi: m, lyric: lyr[i] };
-    t += durs[i];
-    return n;
-  });
-  return newSong({ title: 'Bài ví dụ', notes, lyricsText: lyr.join(' ') });
-}
+const beatsLabel = (t: number) => {
+  const b = t / TPB;
+  return b === 0.25 ? '¼' : b === 0.5 ? '½' : b === 0.75 ? '¾' : b === 1.5 ? '1½' : String(b);
+};
 
-// ---------- tính toán ----------
-function derive() {
-  song.notes = song.notes.map((n) => ({ ...n }));
-  if (song.keyAuto) song.key = detectKey(song.notes);
-  song.chords = song.chordsAuto ? harmonize(song) : fitChordsToSong(song);
-  warnings = checkTones(song.notes);
-}
-
-function snapshot() {
-  undoStack.push(JSON.stringify(song));
-  if (undoStack.length > 100) undoStack.shift();
-  redoStack.length = 0;
-}
-
-function commit(opts: { rederive?: boolean; save?: boolean } = {}) {
-  if (opts.rederive !== false) derive();
-  render();
-  if (opts.save !== false) persist();
-}
-
+// ---------- lưu ----------
 let saveTimer: number | null = null;
 function persist() {
   if (saveTimer) clearTimeout(saveTimer);
   saveTimer = window.setTimeout(() => {
-    song.updated = Date.now();
-    if (!saveSong(song)) toast('Không lưu được trên trình duyệt này (bộ nhớ đầy hoặc bị chặn).');
-  }, 400);
+    cs.updated = Date.now();
+    if (!saveSong(cs)) toast('Không lưu được trên trình duyệt này.');
+  }, 300);
 }
 
-// ---------- giao diện ----------
-const roll = new PianoRoll($('roll'), song, {
-  onChange: (notes, done) => {
-    if (done) {
-      snapshot();
-      song.notes = normalizeNotes(notes);
-      commit();
-    } else {
-      song.notes = notes;
-      roll.setData(song, song.chords, warnSet());
-    }
-  },
-  onSelect: () => renderInspector(),
-  onChordClick: (ci) => openChordDialog(ci),
-  onPreview: (m) => void player.previewNote(m),
-});
-
-function warnSet(): Set<number> {
-  return new Set(warnings.map((w) => w.noteIndex));
+function snapshot() {
+  undoStack.push(JSON.stringify(cs));
+  if (undoStack.length > 80) undoStack.shift();
+  ($('btnUndo') as HTMLButtonElement).disabled = false;
 }
 
-function render() {
-  ($('title') as HTMLInputElement).value = song.title;
-  ($('tempo') as HTMLInputElement).value = String(song.tempo);
-  ($('meter') as HTMLSelectElement).value = String(song.beatsPerMeasure);
-  document.querySelectorAll<HTMLButtonElement>('#meterSeg button').forEach((b) =>
-    b.classList.toggle('on', Number(b.dataset.v) === song.beatsPerMeasure),
-  );
-  ($('lh') as HTMLSelectElement).value = song.lhPattern;
-  ($('cpm') as HTMLSelectElement).value = String(song.chordsPerMeasure);
-  renderKeySelect();
-  if (document.activeElement !== $('lyrics')) ($('lyrics') as HTMLTextAreaElement).value = song.lyricsText;
-  roll.setData(song, song.chords, warnSet());
-  renderInspector();
-  renderWarnings();
+function undo() {
+  const s = undoStack.pop();
+  if (!s) return;
+  cs = JSON.parse(s);
+  closeEditor(false);
+  renderAll();
+  persist();
   ($('btnUndo') as HTMLButtonElement).disabled = undoStack.length === 0;
-  ($('btnRedo') as HTMLButtonElement).disabled = redoStack.length === 0;
-  ($('btnVoice') as HTMLButtonElement).disabled = !audio16k;
-  ($('btnWav') as HTMLButtonElement).disabled = !audio16k;
-  scheduleSheet();
 }
 
-function renderKeySelect() {
+// ---------- hiển thị ----------
+function currentKey() {
+  return toSong(cs).song.key;
+}
+
+function renderSettings() {
+  ($('title') as HTMLInputElement).value = cs.title;
+  ($('tempo') as HTMLInputElement).value = String(cs.tempo);
+  ($('lh') as HTMLSelectElement).value = cs.lhPattern;
+  document.querySelectorAll<HTMLButtonElement>('#meterSeg button').forEach((b) =>
+    b.classList.toggle('on', Number(b.dataset.v) === cs.beatsPerMeasure),
+  );
   const sel = $('key') as HTMLSelectElement;
   if (!sel.options.length) {
-    const auto = new Option('Tự nhận', 'auto');
-    sel.add(auto);
+    sel.add(new Option('Tự nhận', 'auto'));
     for (const mode of ['major', 'minor'] as const)
       for (let t = 0; t < 12; t++) sel.add(new Option(keyName({ tonic: t, mode }), `${t}:${mode}`));
   }
-  sel.options[0].text = `Tự nhận (${keyName(song.key)})`;
-  sel.value = song.keyAuto ? 'auto' : `${song.key.tonic}:${song.key.mode}`;
+  const k = currentKey();
+  sel.options[0].text = `Tự nhận (${keyName(k)})`;
+  sel.value = cs.keyAuto ? 'auto' : `${cs.key.tonic}:${cs.key.mode}`;
 }
 
-function renderInspector() {
-  const i = roll.selected;
-  const box = $('inspector');
-  if (i === null || !song.notes[i]) {
-    box.hidden = true;
-    return;
-  }
-  const n = song.notes[i];
-  box.hidden = false;
-  const beat = n.start / TPB;
-  const m = Math.floor(n.start / measureTicks(song)) + 1;
-  $('insName').textContent = `Nốt ${midiName(n.midi, song.key)} · ô nhịp ${m} · phách ${((beat % song.beatsPerMeasure) + 1).toFixed(
-    n.start % TPB ? 2 : 0,
-  )} · dài ${n.dur / TPB} phách`;
-  const inp = $('insLyric') as HTMLInputElement;
-  if (document.activeElement !== inp) inp.value = n.lyric ?? '';
-}
+function renderLines() {
+  const box = $('lines');
+  box.innerHTML = '';
+  const { song } = toSong(cs);
+  const key = song.key;
+  // cảnh báo dấu thanh (theo chỉ số nốt) -> chỉ số chữ
+  const noteWord: number[] = [];
+  cs.words.forEach((w, i) => w.midi !== null && noteWord.push(i));
+  const warnWords = new Set(checkTones(song.notes).map((w) => noteWord[w.noteIndex]));
 
-function renderWarnings() {
-  const box = $('toneBox');
-  const ul = $('toneList');
-  ul.innerHTML = '';
-  box.hidden = warnings.length === 0;
-  for (const w of warnings) {
-    const li = document.createElement('li');
-    li.innerHTML = `<span class="sev">[${w.severity}]</span> `;
-    li.append(w.message);
-    li.onclick = () => {
-      roll.selected = w.noteIndex;
-      roll.draw();
-      renderInspector();
-      $('roll').scrollIntoView({ behavior: 'smooth', block: 'center' });
-      player.previewNote(song.notes[w.noteIndex].midi);
-    };
-    ul.append(li);
-  }
-}
-
-function scheduleSheet() {
-  if (sheetTimer) clearTimeout(sheetTimer);
-  sheetTimer = window.setTimeout(async () => {
-    const el = $('sheet');
-    if (song.notes.length === 0) {
-      el.innerHTML = '<p class="hint">Hát xong, sheet nhạc sẽ hiện ở đây.</p>';
-      return;
+  let line = document.createElement('div');
+  line.className = 'line';
+  cs.words.forEach((w, i) => {
+    const b = document.createElement('button');
+    b.className = 'w' + (w.done ? ' done' : '') + (i === cur ? ' cur' : '') + (warnWords.has(i) ? ' warn' : '');
+    b.dataset.i = String(i);
+    const shown = i === cur && draft ? { ...w, ...draft } : w;
+    const ch = document.createElement('span');
+    ch.className = 'ch';
+    ch.textContent = shown.chord ? chordName(shown.chord, key) : '';
+    const tx = document.createElement('span');
+    tx.className = 'tx';
+    tx.textContent = w.text;
+    const nt = document.createElement('span');
+    nt.className = 'nt';
+    nt.textContent =
+      shown.midi !== null && (w.done || i === cur)
+        ? `${solfegeName(shown.midi)} · ${beatsLabel(shown.dur)}${shown.rest ? ` +${beatsLabel(shown.rest)}` : ''}`
+        : w.done
+          ? `lặng · ${beatsLabel(shown.dur)}`
+          : '';
+    b.append(ch, tx, nt);
+    b.onclick = () => openEditor(i);
+    line.append(b);
+    if (w.br) {
+      box.append(line);
+      line = document.createElement('div');
+      line.className = 'line';
     }
-    try {
-      const { renderSheet } = await import('./ui/sheet');
-      if (el.querySelector('p.hint')) el.innerHTML = '';
-      await renderSheet(el, songToMusicXml(song, song.chords));
-    } catch (e) {
-      console.error(e);
-      el.innerHTML = '<p class="hint">Không vẽ được sheet. Hãy thử chỉnh lại nốt.</p>';
-    }
-  }, 350);
+  });
+  if (line.childElementCount) box.append(line);
+
+  const done = cs.words.filter((w) => w.done).length;
+  $('status').innerHTML = `Đã viết <b>${done}</b>/${cs.words.length} chữ · ${measureCount(cs)} ô nhịp · ${keyName(key)}`;
 }
 
-function toast(msg: string, ms = 3500) {
+function renderAll() {
+  renderSettings();
+  const hasWords = cs.words.length > 0;
+  $('lyricsEdit').hidden = hasWords;
+  $('songView').hidden = !hasWords;
+  $('lyricsCancel').hidden = true;
+  if (!hasWords) ($('lyrics') as HTMLTextAreaElement).value = cs.lyricsText;
+  renderLines();
+  ($('btnUndo') as HTMLButtonElement).disabled = undoStack.length === 0;
+}
+
+function toast(msg: string, ms = 3000) {
   const t = $('toast');
   t.textContent = msg;
   t.hidden = false;
@@ -205,386 +175,279 @@ function toast(msg: string, ms = 3500) {
   (toast as any)._t = setTimeout(() => (t.hidden = true), ms);
 }
 
-function setProgress(id: string, frac: number | null, text?: string) {
-  const box = $(id);
-  if (frac === null) {
-    box.hidden = true;
-    return;
-  }
-  box.hidden = false;
-  (box.querySelector('div') as HTMLElement).style.width = `${Math.round(frac * 100)}%`;
-  if (text) (box.querySelector('span') as HTMLElement).textContent = text;
-}
-
-// ---------- thu âm ----------
-function renderBeats(active: number | null) {
-  const el = $('beats');
-  const n = song.beatsPerMeasure;
-  if (el.children.length !== n) {
-    el.innerHTML = '';
-    for (let i = 0; i < n; i++) el.append(document.createElement('span'));
-  }
-  [...el.children].forEach((c, i) => {
-    c.className = active !== null && i === ((active % n) + n) % n ? 'on' + (i === 0 ? ' first' : '') : '';
-  });
-}
-
-async function toggleRecord() {
-  const btn = $('btnRecord');
-  if (recSession) {
-    const s = recSession;
-    recSession = null;
-    btn.classList.remove('on');
-    $('dockRec').classList.remove('on');
-    $('recLabel').textContent = 'Bấm để thu';
-    renderBeats(null);
-    ($('level') as HTMLElement).style.width = '0';
-    const rec = await s.stop();
-    // tắt gõ nhịp: căn nhịp theo nốt hát đầu tiên
-    if (clickMode() === 'off') rec.t0 = NaN;
-    if (rec.samples.length < rec.sampleRate * 0.5) {
-      toast('Bản thu quá ngắn, hãy hát lâu hơn một chút.');
-      return;
+// ---------- bàn phím piano ----------
+const BLACK = new Set([1, 3, 6, 8, 10]);
+function buildKeyboard() {
+  const kb = $('keyboard');
+  kb.innerHTML = '';
+  let whiteIndex = 0;
+  for (let m = KB_LO; m <= KB_HI; m++) {
+    const k = document.createElement('button');
+    k.className = 'key ' + (BLACK.has(m % 12) ? 'black' : 'white') + (m % 12 === 0 ? ' c' : '');
+    k.dataset.m = String(m);
+    k.setAttribute('aria-label', solfegeName(m));
+    if (BLACK.has(m % 12)) {
+      k.style.left = `${whiteIndex * 40}px`;
+    } else {
+      k.textContent = m % 12 === 0 ? `Đô${Math.floor(m / 12) - 1}` : '';
+      whiteIndex++;
     }
-    await analyze(rec);
-    return;
+    k.onclick = () => setDraftMidi(m);
+    kb.append(k);
   }
-  player.stop();
-  readSettings();
-  try {
-    const mode = clickMode();
-    const s = await startRecording({
-      tempo: song.tempo,
-      beatsPerMeasure: song.beatsPerMeasure,
-      countInMeasures: mode === 'off' ? 0 : 1,
-      metronomeDuringTake: mode === 'always',
-    });
-    recSession = s;
-    btn.classList.add('on');
-    $('dockRec').classList.add('on');
-    $('recLabel').textContent = mode === 'off' ? 'Đang thu – bấm để dừng' : 'Đang đếm nhịp…';
-    s.onTick = (b) => {
-      renderBeats(b);
-      $('recLabel').textContent = b < 0 ? `Chuẩn bị… ${-b}` : 'Đang thu – bấm để dừng';
-    };
-    s.onLevel = (rms) => (($('level') as HTMLElement).style.width = `${Math.min(100, rms * 400)}%`);
-  } catch (e: any) {
-    console.error(e);
-    toast(
-      e?.name === 'NotAllowedError'
-        ? 'Bạn cần cho phép dùng micro (bấm biểu tượng ổ khóa cạnh thanh địa chỉ).'
-        : 'Không mở được micro: ' + (e?.message ?? e),
-      6000,
-    );
+  kb.style.width = `${whiteIndex * 40}px`;
+}
+
+function highlightKey(scroll: boolean) {
+  const m = draft?.midi ?? null;
+  document.querySelectorAll<HTMLElement>('#keyboard .key').forEach((k) => k.classList.toggle('on', Number(k.dataset.m) === m));
+  if (scroll && m !== null) {
+    const el = document.querySelector<HTMLElement>(`#keyboard .key[data-m="${m}"]`);
+    const wrap = $('kbWrap');
+    if (el) wrap.scrollLeft = Math.max(0, el.offsetLeft - wrap.clientWidth / 2 + 20);
   }
 }
 
-async function analyze(rec: Parameters<typeof transcribeMelody>[0]) {
-  setProgress('anaProgress', 0, 'Đang phân tích giọng hát…');
-  try {
-    const grid = Number(($('grid') as HTMLSelectElement).value);
-    const legato = ($('legato') as HTMLInputElement).checked;
-    const res = await transcribeMelody(rec, { tempo: song.tempo, beatsPerMeasure: song.beatsPerMeasure, grid, legato }, (p) =>
-      setProgress('anaProgress', p),
-    );
-    setProgress('anaProgress', null);
-    if (res.notes.length === 0) {
-      toast('Không nghe thấy giai điệu. Hãy hát to và rõ hơn, gần micro hơn.', 5000);
-      return;
-    }
-    snapshot();
-    audio16k = res.audio16k;
-    if (song.title === 'Bài ví dụ') {
-      // thu đè lên bài ví dụ thì tạo bài mới, giữ các cài đặt
-      song = newSong({ tempo: song.tempo, beatsPerMeasure: song.beatsPerMeasure, lhPattern: song.lhPattern, lyricsText: '' });
-    }
-    song.notes = res.notes;
-    song.keyAuto = true;
-    song.chordsAuto = true;
-    if (song.lyricsText.trim()) song.notes = assignLyrics(song.notes, song.lyricsText).notes;
-    roll.selected = null;
-    commit();
-    void saveAudio(song.id, audio16k);
-    toast(`Đã nhận ${res.notes.length} nốt. Bấm ▶ Phát để nghe, kéo nốt để sửa.`);
-    $('editCard').scrollIntoView({ behavior: 'smooth' });
-  } catch (e: any) {
-    console.error(e);
-    setProgress('anaProgress', null);
-    toast('Lỗi khi phân tích: ' + (e?.message ?? e), 6000);
+// ---------- bảng chọn nốt ----------
+function effectiveChord(index: number): WordChord | null {
+  for (let i = index; i >= 0; i--) {
+    const c = i === cur && draft ? draft.chord : cs.words[i].chord;
+    if (c) return c;
   }
+  return null;
 }
 
-type ClickMode = 'countin' | 'always' | 'off';
-function clickMode(): ClickMode {
-  return ($('clickMode') as HTMLSelectElement).value as ClickMode;
-}
-
-function updateRecHint() {
-  const m = clickMode();
-  $('recHint').textContent =
-    m === 'off'
-      ? 'Không gõ nhịp: cứ hát tự nhiên, app căn nhịp theo nốt đầu tiên và tốc độ bạn chọn.'
-      : m === 'always'
-        ? 'App đếm vào 1 ô nhịp rồi gõ nhịp suốt khi bạn hát. Nên đeo tai nghe để tiếng gõ không lọt vào micro.'
-        : 'App đếm vào 1 ô nhịp rồi im lặng để bạn hát. Hát đúng tốc độ của tiếng đếm để nhịp chính xác nhất.';
-}
-
-function readSettings() {
-  const tempo = Math.max(40, Math.min(200, Number(($('tempo') as HTMLInputElement).value) || 80));
-  song.tempo = tempo;
-  song.beatsPerMeasure = Number(($('meter') as HTMLSelectElement).value);
-}
-
-// ---------- phát ----------
-function tickNow(): number {
-  const sec = player.position();
-  return sec < 0 ? -1 : (sec * song.tempo * TPB) / 60;
-}
-
-function animate() {
-  if (!playing) {
-    roll.setPlayhead(-1);
-    return;
-  }
-  roll.setPlayhead(tickNow());
-  requestAnimationFrame(animate);
-}
-
-function setPlayingUi(on: boolean) {
-  $('btnPlay').classList.toggle('playing', on);
-  $('btnPlay').textContent = on ? '❚❚' : '▶';
-  ($('dockPlay').querySelector('.ico') as HTMLElement).textContent = on ? '■' : '▶';
-}
-
-async function playSong() {
-  if (!song.notes.length) return toast('Chưa có nốt nào. Hãy hát trước.');
-  player.stopVoice();
-  playing = true;
-  setPlayingUi(true);
-  ($('btnPlay') as HTMLButtonElement).disabled = true;
-  try {
-    const p = await getPlayer();
-    await p.play(song, song.chords, {
-      melody: ($('playMelody') as HTMLInputElement).checked,
-      accompaniment: ($('playAcc') as HTMLInputElement).checked,
-      onEnd: stopAll,
-    });
-    requestAnimationFrame(animate);
-  } catch (e) {
-    console.error(e);
-    stopAll();
-  } finally {
-    ($('btnPlay') as HTMLButtonElement).disabled = false;
-  }
-}
-
-function stopAll() {
-  playing = false;
-  setPlayingUi(false);
-  player.stop();
-  player.stopVoice();
-  roll.setPlayhead(-1);
-}
-
-// ---------- sửa nốt ----------
-function editSelected(fn: (n: Note, notes: Note[], i: number) => Note[] | void) {
-  const i = roll.selected;
-  if (i === null || !song.notes[i]) {
-    toast('Chọn một nốt trước (bấm vào nốt).');
-    return;
-  }
-  snapshot();
-  const notes = song.notes.map((n) => ({ ...n }));
-  const res = fn(notes[i], notes, i);
-  const target = notes[i];
-  song.notes = normalizeNotes(res ?? notes);
-  // giữ nốt đang chọn sau khi sắp xếp lại
-  const ni = song.notes.findIndex((n) => n.start === target.start && n.midi === target.midi);
-  roll.selected = ni >= 0 ? ni : null;
-  commit();
-  if (roll.selected !== null) player.previewNote(song.notes[roll.selected].midi);
-}
-
-function grid(): number {
-  return Number(($('grid') as HTMLSelectElement).value);
-}
-
-function bindEditing() {
-  $('nUp').onclick = () => editSelected((n) => void (n.midi = Math.min(100, n.midi + 1)));
-  $('nDown').onclick = () => editSelected((n) => void (n.midi = Math.max(24, n.midi - 1)));
-  $('nLeft').onclick = () => editSelected((n) => void (n.start = Math.max(0, n.start - grid())));
-  $('nRight').onclick = () => editSelected((n) => void (n.start += grid()));
-  $('nLonger').onclick = () => editSelected((n) => void (n.dur += grid()));
-  $('nShorter').onclick = () => editSelected((n) => void (n.dur = Math.max(1, n.dur - grid())));
-  $('nDelete').onclick = () =>
-    editSelected((_n, notes, i) => {
-      notes.splice(i, 1);
-      roll.selected = null;
-      return notes;
-    });
-  $('nSplit').onclick = () =>
-    editSelected((n, notes, i) => {
-      if (n.dur < 2) return notes;
-      const half = Math.max(1, Math.floor(n.dur / 2 / grid()) * grid() || Math.floor(n.dur / 2));
-      notes.splice(i + 1, 0, { start: n.start + half, dur: n.dur - half, midi: n.midi });
-      n.dur = half;
-      return notes;
-    });
-  $('nMerge').onclick = () =>
-    editSelected((n, notes, i) => {
-      const next = notes[i + 1];
-      if (!next) return notes;
-      n.dur = next.start + next.dur - n.start;
-      notes.splice(i + 1, 1);
-      return notes;
-    });
-  const all = (fn: (n: Note) => void) => {
-    if (!song.notes.length) return;
-    snapshot();
-    song.notes.forEach(fn);
-    song.notes = normalizeNotes(song.notes);
-    commit();
+function openEditor(i: number) {
+  if (cur !== null && dirty) commitDraft(false);
+  stopPlay();
+  cur = i;
+  const w = cs.words[i];
+  const key = currentKey();
+  draft = {
+    midi: w.done ? w.midi : defaultMidi(cs.words, i, key),
+    dur: w.done ? w.dur : defaultDur(cs.words, i),
+    rest: w.rest,
+    chord: w.chord,
   };
-  $('allUp').onclick = () => all((n) => void (n.midi += 1));
-  $('allDown').onclick = () => all((n) => void (n.midi -= 1));
-  $('allLeft').onclick = () => {
-    if (song.notes.length && song.notes[0].start - grid() < 0) return toast('Bài đã bắt đầu từ đầu ô nhịp.');
-    all((n) => void (n.start -= grid()));
-  };
-  $('allRight').onclick = () => all((n) => void (n.start += grid()));
-
-  $('btnUndo').onclick = undo;
-  $('btnRedo').onclick = redo;
-
-  ($('insLyric') as HTMLInputElement).addEventListener('change', (e) => {
-    const i = roll.selected;
-    if (i === null) return;
-    snapshot();
-    const v = (e.target as HTMLInputElement).value.trim();
-    song.notes[i].lyric = v || undefined;
-    song.lyricsText = lyricsFromNotes(song.notes);
-    commit();
-  });
-
-  document.addEventListener('keydown', (e) => {
-    const tag = (document.activeElement?.tagName ?? '').toLowerCase();
-    if (tag === 'input' || tag === 'textarea' || tag === 'select') return;
-    const k = e.key;
-    if ((e.ctrlKey || e.metaKey) && k.toLowerCase() === 'z') {
-      e.preventDefault();
-      e.shiftKey ? redo() : undo();
-    } else if ((e.ctrlKey || e.metaKey) && k.toLowerCase() === 'y') {
-      e.preventDefault();
-      redo();
-    } else if (roll.selected !== null) {
-      const map: Record<string, string> = e.shiftKey
-        ? { ArrowRight: 'nLonger', ArrowLeft: 'nShorter' }
-        : { ArrowUp: 'nUp', ArrowDown: 'nDown', ArrowLeft: 'nLeft', ArrowRight: 'nRight', Delete: 'nDelete', Backspace: 'nDelete' };
-      if (map[k]) {
-        e.preventDefault();
-        $(map[k]).click();
-      }
-    } else if (k === ' ') {
-      e.preventDefault();
-      playing ? stopAll() : playSong();
-    }
-  });
+  dirty = false; // chỉ lưu khi người dùng chỉnh hoặc bấm OK
+  $('editor').hidden = false;
+  renderEditor(true);
+  renderLines();
+  document.body.classList.add('editing');
+  // cuộn để chữ đang chọn nằm phía trên bảng chọn nốt
+  const el = document.querySelector<HTMLElement>(`.w[data-i="${i}"]`);
+  const board = document.querySelector<HTMLElement>('.board')!;
+  if (el) {
+    const free = board.clientHeight - $('editor').offsetHeight + (board.getBoundingClientRect().top - 0);
+    const top = el.getBoundingClientRect().top - board.getBoundingClientRect().top;
+    const want = Math.max(8, Math.min(free - 120, board.clientHeight * 0.18));
+    board.scrollTo({ top: board.scrollTop + top - want, behavior: 'smooth' });
+  }
 }
 
-function undo() {
-  const s = undoStack.pop();
-  if (!s) return;
-  redoStack.push(JSON.stringify(song));
-  song = JSON.parse(s);
-  roll.selected = null;
-  commit({ rederive: true });
-}
+function renderEditor(scrollKeys = false) {
+  if (cur === null || !draft) return;
+  const w = cs.words[cur];
+  const key = currentKey();
+  $('edIndex').textContent = `Chữ ${cur + 1}/${cs.words.length}`;
+  $('edWord').textContent = w.text;
+  ($('edPrev') as HTMLButtonElement).disabled = cur === 0;
+  ($('edNext') as HTMLButtonElement).disabled = cur === cs.words.length - 1;
+  $('edNote').innerHTML =
+    draft.midi === null ? 'Lặng <small>(không hát)</small>' : `${solfegeName(draft.midi)} <small>${midiName(draft.midi, key)}</small>`;
+  highlightKey(scrollKeys);
 
-function redo() {
-  const s = redoStack.pop();
-  if (!s) return;
-  undoStack.push(JSON.stringify(song));
-  song = JSON.parse(s);
-  roll.selected = null;
-  commit({ rederive: true });
-}
-
-// ---------- hợp âm ----------
-let chordTarget = -1;
-function openChordDialog(ci: number) {
-  chordTarget = ci;
-  const dlg = $('chordDialog') as HTMLDialogElement;
-  const box = $('chordChoices');
-  box.innerHTML = '';
-  for (const c of diatonicChords(song.key)) {
+  const dur = $('durChips');
+  dur.innerHTML = '';
+  for (const [t, name, sub] of DURS) {
     const b = document.createElement('button');
-    b.innerHTML = `${chordName(c, song.key)}<small>${c.degree}</small>`;
+    b.className = t === draft.dur ? 'on' : '';
+    b.innerHTML = `${name}<small>${sub}</small>`;
     b.onclick = () => {
-      setChord(ci, c);
-      dlg.close();
+      draft!.dur = t;
+      dirty = true;
+      renderEditor();
+      renderLines();
     };
-    box.append(b);
+    dur.append(b);
   }
-  ($('chordInput') as HTMLInputElement).value = chordName(song.chords[ci], song.key);
-  dlg.showModal();
+
+  const rest = $('restChips');
+  rest.innerHTML = '';
+  for (const [t, name] of RESTS) {
+    const b = document.createElement('button');
+    b.className = t === draft.rest ? 'on' : '';
+    b.textContent = name;
+    b.onclick = () => {
+      draft!.rest = t;
+      dirty = true;
+      renderEditor();
+      renderLines();
+    };
+    rest.append(b);
+  }
+
+  const chips = $('chordChips');
+  chips.innerHTML = '';
+  const none = document.createElement('button');
+  none.className = draft.chord ? '' : 'on';
+  none.innerHTML = '—<small>giữ hợp âm cũ</small>';
+  none.onclick = () => setDraftChord(null);
+  chips.append(none);
+  const seen = new Set<string>();
+  const options = diatonicChords(key).map((c) => ({ root: c.root, quality: c.quality, sub: c.degree }));
+  if (draft.chord) options.unshift({ ...draft.chord, sub: '' });
+  for (const c of options) {
+    const name = chordName(c, key);
+    if (seen.has(name)) continue;
+    seen.add(name);
+    const b = document.createElement('button');
+    const on = !!draft.chord && draft.chord.root === c.root && draft.chord.quality === c.quality;
+    b.className = on ? 'on' : '';
+    b.innerHTML = `${name}<small>${c.sub || 'đang chọn'}</small>`;
+    b.onclick = () => setDraftChord({ root: c.root, quality: c.quality });
+    chips.append(b);
+  }
+  const other = document.createElement('button');
+  other.innerHTML = 'Khác…<small>gõ tên</small>';
+  other.onclick = () => {
+    ($('chordInput') as HTMLInputElement).value = draft?.chord ? chordName(draft.chord, key) : '';
+    ($('chordDialog') as HTMLDialogElement).showModal();
+  };
+  chips.append(other);
+  const prev = cur > 0 ? effectiveChord(cur - 1) : null;
+  $('edChordNow').textContent = draft.chord ? '' : prev ? `· đang vang ${chordName(prev, key)}` : '· chưa có';
+
+  // cảnh báo dấu thanh cho chữ này (so với chữ trước)
+  const warnEl = $('edWarn');
+  warnEl.hidden = true;
+  if (draft.midi !== null && cur > 0) {
+    let pi = cur - 1;
+    while (pi >= 0 && cs.words[pi].midi === null) pi--;
+    if (pi >= 0) {
+      const a = cs.words[pi];
+      const warns = checkTones([
+        { start: 0, dur: 4, midi: a.midi!, lyric: a.text },
+        { start: 4, dur: 4, midi: draft.midi, lyric: w.text },
+      ]);
+      if (warns.length) {
+        warnEl.textContent = '💡 ' + warns[0].message;
+        warnEl.hidden = false;
+      }
+    }
+  }
 }
 
-function setChord(ci: number, c: Pick<Chord, 'root' | 'quality'>) {
+function setDraftMidi(m: number) {
+  if (!draft) return;
+  draft.midi = Math.max(KB_LO - 12, Math.min(KB_HI + 12, m));
+  dirty = true;
+  renderEditor();
+  renderLines();
+  preview();
+}
+
+function setDraftChord(c: WordChord | null) {
+  if (!draft) return;
+  draft.chord = c;
+  dirty = true;
+  renderEditor();
+  renderLines();
+  preview();
+}
+
+function preview() {
+  if (cur === null || !draft) return;
+  const ch = effectiveChord(cur);
+  // bass (G2–F#3) + hợp âm (G3–F#4), giống phần đệm tay trái
+  const lh = ch ? [43 + mod12(ch.root - 7), ...chordPcs(ch).map((pc) => 55 + mod12(pc - 7))] : [];
+  const secs = Math.min(1.6, (draft.dur * 60) / cs.tempo / TPB);
+  void getPlayer().then((p) => p.previewWord(draft?.midi ?? null, lh, Math.max(0.3, secs)));
+}
+
+function commitDraft(markDone = true) {
+  if (cur === null || !draft) return;
   snapshot();
-  song.chordsAuto = false;
-  song.chords = song.chords.map((x, i) => (i === ci ? { ...x, root: c.root, quality: c.quality } : x));
-  commit();
+  const w = cs.words[cur];
+  cs.words[cur] = { ...w, ...draft, done: markDone ? true : w.done || dirty };
+  dirty = false;
+  persist();
 }
 
-// ---------- lời ----------
-function assignFromTextarea() {
-  const text = ($('lyrics') as HTMLTextAreaElement).value;
-  if (!song.notes.length) return toast('Chưa có nốt nào. Hãy hát trước.');
-  snapshot();
-  song.lyricsText = text;
-  const r = assignLyrics(song.notes, text);
-  song.notes = r.notes;
-  commit();
-  const msg =
-    r.extra > 0
-      ? `Thừa ${r.extra} chữ so với số nốt. Hãy tách nốt (✂) hoặc bớt chữ.`
-      : r.missing > 0
-        ? `Thiếu ${r.missing} chữ: ${r.missing} nốt cuối chưa có lời.`
-        : 'Đã gán lời: mỗi chữ một nốt.';
-  $('lyricMsg').textContent = msg;
+function closeEditor(save = true) {
+  if (save && cur !== null && dirty) commitDraft(false);
+  cur = null;
+  draft = null;
+  dirty = false;
+  $('editor').hidden = true;
+  document.body.classList.remove('editing');
+  renderLines();
+  renderSettings();
 }
 
-async function recognizeLyrics() {
-  if (!audio16k) {
-    audio16k = await loadAudio(song.id);
-    if (!audio16k) return toast('Chưa có bản thu giọng cho bài này. Hãy hát trước.');
-  }
-  const model = ($('asrModel') as HTMLSelectElement).value as 'base' | 'small';
-  ($('btnAsr') as HTMLButtonElement).disabled = true;
-  setProgress('asrProgress', 0, 'Chuẩn bị…');
-  try {
-    const text = await transcribe(audio16k, model, {
-      onStatus: (t) => setProgress('asrProgress', 0.02, t),
-      onProgress: (l, t) =>
-        setProgress('asrProgress', t ? l / t : 0, `Đang tải mô hình: ${(l / 1e6).toFixed(0)} / ${(t / 1e6).toFixed(0)} MB`),
-    });
-    setProgress('asrProgress', null);
-    if (!text) return toast('AI chưa nghe ra lời. Bạn có thể gõ lời bằng tay.');
-    ($('lyrics') as HTMLTextAreaElement).value = text;
-    assignFromTextarea();
-    toast('Đã nhận lời (bản nháp). Hãy sửa lại cho đúng rồi bấm "Gán lời vào nốt".', 5000);
-  } catch (e: any) {
-    console.error(e);
-    setProgress('asrProgress', null);
-    toast('Không nhận được lời: ' + (e?.message ?? e) + '. Bạn có thể gõ lời bằng tay.', 7000);
-  } finally {
-    ($('btnAsr') as HTMLButtonElement).disabled = false;
+function okNext() {
+  if (cur === null) return;
+  commitDraft(true);
+  if (cur < cs.words.length - 1) {
+    openEditor(cur + 1);
+  } else {
+    closeEditor(false);
+    renderSettings();
+    toast('Xong cả bài! Bấm ▶ để nghe thử.', 4000);
   }
 }
 
-// ---------- tải về ----------
-function safeName(): string {
-  return (song.title || 'bai-hat').replace(/[\\/:*?"<>|]+/g, '').trim() || 'bai-hat';
+function go(delta: number) {
+  if (cur === null) return;
+  const n = cur + delta;
+  if (n < 0 || n >= cs.words.length) return;
+  openEditor(n);
+}
+
+// ---------- nghe thử ----------
+function setPlayUi(on: boolean) {
+  $('btnPlay').classList.toggle('on', on);
+  $('btnPlay').textContent = on ? '■' : '▶';
+}
+
+async function play() {
+  if (cur !== null) closeEditor();
+  const { song, chords } = toSong(cs);
+  if (!song.notes.length && !chords.length) return toast('Chưa có nốt nào. Bấm vào một chữ để bắt đầu.');
+  playing = true;
+  setPlayUi(true);
+  const p = await getPlayer();
+  await p.play(song, chords, {
+    melody: true,
+    accompaniment: ($('playAcc') as HTMLInputElement).checked,
+    onEnd: stopPlay,
+  });
+  const starts = wordStarts(cs.words);
+  const total = Math.max(1, totalTicks(cs.words));
+  const tick = () => {
+    if (!playing) return;
+    const sec = p.position();
+    const t = sec < 0 ? 0 : (sec * cs.tempo * TPB) / 60;
+    ($('pfill') as HTMLElement).style.width = `${Math.min(100, (t / total) * 100)}%`;
+    const wi = starts.findIndex((s, i) => t >= s && t < s + cs.words[i].dur + cs.words[i].rest);
+    document.querySelectorAll('.w.playing').forEach((e) => e.classList.remove('playing'));
+    if (wi >= 0) document.querySelector(`.w[data-i="${wi}"]`)?.classList.add('playing');
+    requestAnimationFrame(tick);
+  };
+  requestAnimationFrame(tick);
+}
+
+function stopPlay() {
+  playing = false;
+  playerMod?.stop();
+  setPlayUi(false);
+  ($('pfill') as HTMLElement).style.width = '0';
+  document.querySelectorAll('.w.playing').forEach((e) => e.classList.remove('playing'));
+}
+
+// ---------- sheet & tải về ----------
+function safeName() {
+  return (cs.title || 'bai-hat').replace(/[\\/:*?"<>|]+/g, '').trim() || 'bai-hat';
 }
 
 function download(data: BlobPart, type: string, name: string) {
@@ -598,36 +461,31 @@ function download(data: BlobPart, type: string, name: string) {
   setTimeout(() => URL.revokeObjectURL(url), 2000);
 }
 
-function bindExports() {
-  $('btnMidi').onclick = () => {
-    if (!song.notes.length) return toast('Chưa có nốt nào.');
-    download(songToMidi(song, song.chords) as Uint8Array<ArrayBuffer>, 'audio/midi', `${safeName()}.mid`);
-  };
-  $('btnXml').onclick = () => {
-    if (!song.notes.length) return toast('Chưa có nốt nào.');
-    download(songToMusicXml(song, song.chords), 'application/vnd.recordare.musicxml+xml', `${safeName()}.musicxml`);
-  };
-  $('btnPdf').onclick = () => {
-    if (!song.notes.length) return toast('Chưa có nốt nào.');
-    toast('Chọn "Lưu dưới dạng PDF" trong hộp thoại in.', 4000);
-    setTimeout(() => window.print(), 300);
-  };
-  $('btnWav').onclick = () => {
-    if (!audio16k) return;
-    download(encodeWav(audio16k, 16000), 'audio/wav', `${safeName()}-giong-hat.wav`);
-  };
-  const share = $('btnShare') as HTMLButtonElement;
-  const probe = new File([new Uint8Array(1)], 'a.mid', { type: 'audio/midi' });
-  if (navigator.canShare?.({ files: [probe] })) {
-    share.hidden = false;
-    share.onclick = async () => {
-      const f = new File([songToMidi(song, song.chords) as Uint8Array<ArrayBuffer>], `${safeName()}.mid`, { type: 'audio/midi' });
-      try {
-        await navigator.share({ files: [f], title: song.title, text: 'Bài hát mình vừa sáng tác bằng Hát ra nhạc' });
-      } catch {
-        /* người dùng hủy */
-      }
-    };
+function hasMusic(): boolean {
+  if (cs.words.some((w) => w.midi !== null && w.done)) return true;
+  toast('Chưa có nốt nào. Bấm vào một chữ để chọn nốt.');
+  return false;
+}
+
+function midiBytes() {
+  const { song, chords } = toSong(cs);
+  return songToMidi(song, chords) as Uint8Array<ArrayBuffer>;
+}
+
+async function openSheet() {
+  if (!hasMusic()) return;
+  const dlg = $('sheetDialog') as HTMLDialogElement;
+  dlg.showModal();
+  const el = $('sheet');
+  el.innerHTML = '<p style="padding:12px;color:#666">Đang vẽ sheet…</p>';
+  try {
+    const { song, chords } = toSong(cs);
+    const { renderSheet } = await import('./ui/sheet');
+    el.innerHTML = '';
+    await renderSheet(el, songToMusicXml(song, chords));
+  } catch (e) {
+    console.error(e);
+    el.innerHTML = '<p style="padding:12px;color:#666">Không vẽ được sheet.</p>';
   }
 }
 
@@ -636,24 +494,28 @@ function openSongs() {
   const ul = $('songsList');
   ul.innerHTML = '';
   const all = listSongs();
-  if (!all.length) ul.innerHTML = '<li><span class="hint">Chưa có bài nào.</span></li>';
+  if (!all.length) ul.innerHTML = '<li><span>Chưa có bài nào.</span></li>';
   for (const s of all) {
     const li = document.createElement('li');
     const name = document.createElement('span');
-    name.textContent = `${s.title} · ${new Date(s.updated).toLocaleString('vi-VN')}`;
+    name.innerHTML = '';
+    name.append(s.title);
+    const small = document.createElement('small');
+    small.textContent = new Date(s.updated).toLocaleString('vi-VN');
+    name.append(small);
     const open = document.createElement('button');
+    open.className = 'small';
     open.textContent = 'Mở';
-    open.onclick = async () => {
-      stopAll();
-      song = s;
-      audio16k = await loadAudio(s.id);
+    open.onclick = () => {
+      stopPlay();
+      closeEditor(false);
+      cs = s;
       undoStack.length = 0;
-      redoStack.length = 0;
-      roll.selected = null;
-      commit({ save: false });
+      renderAll();
       ($('songsDialog') as HTMLDialogElement).close();
     };
     const del = document.createElement('button');
+    del.className = 'small ghost';
     del.textContent = 'Xóa';
     del.onclick = () => {
       if (!confirm(`Xóa bài "${s.title}"?`)) return;
@@ -667,164 +529,181 @@ function openSongs() {
   if (!dlg.open) dlg.showModal();
 }
 
+function newSongAction() {
+  stopPlay();
+  closeEditor();
+  persist();
+  cs = newCompose({ tempo: cs.tempo, beatsPerMeasure: cs.beatsPerMeasure, lhPattern: cs.lhPattern });
+  undoStack.length = 0;
+  renderAll();
+  ($('lyrics') as HTMLTextAreaElement).focus();
+}
+
 // ---------- gắn sự kiện ----------
 function bind() {
-  $('btnRecord').onclick = toggleRecord;
-  ($('file') as HTMLInputElement).onchange = async (e) => {
-    const f = (e.target as HTMLInputElement).files?.[0];
-    if (!f) return;
-    readSettings();
-    try {
-      const rec = await decodeFile(f);
-      await analyze(rec);
-    } catch (err: any) {
-      toast('Không đọc được file âm thanh: ' + (err?.message ?? err));
-    }
-    (e.target as HTMLInputElement).value = '';
-  };
   ($('title') as HTMLInputElement).onchange = (e) => {
-    song.title = (e.target as HTMLInputElement).value.trim() || 'Bài hát mới';
-    commit({ rederive: false });
+    cs.title = (e.target as HTMLInputElement).value.trim() || 'Bài hát mới';
+    persist();
   };
-  ($('tempo') as HTMLInputElement).onchange = () => {
-    readSettings();
-    commit({ rederive: false });
+  const setTempo = (v: number) => {
+    cs.tempo = Math.max(40, Math.min(200, Math.round(v) || 80));
+    renderSettings();
+    persist();
   };
-  ($('meter') as HTMLSelectElement).onchange = () => {
-    snapshot();
-    readSettings();
-    commit();
-  };
-  ($('key') as HTMLSelectElement).onchange = (e) => {
-    snapshot();
-    const v = (e.target as HTMLSelectElement).value;
-    if (v === 'auto') song.keyAuto = true;
-    else {
-      const [t, m] = v.split(':');
-      song.keyAuto = false;
-      song.key = { tonic: Number(t), mode: m as 'major' | 'minor' };
-    }
-    song.chordsAuto = true;
-    commit();
-  };
-  ($('lh') as HTMLSelectElement).onchange = (e) => {
-    song.lhPattern = (e.target as HTMLSelectElement).value as LhPattern;
-    commit({ rederive: false });
-  };
-  ($('cpm') as HTMLSelectElement).onchange = (e) => {
-    snapshot();
-    song.chordsPerMeasure = Number((e.target as HTMLSelectElement).value) as 1 | 2;
-    song.chordsAuto = true;
-    commit();
-  };
-  $('btnReharm').onclick = () => {
-    snapshot();
-    song.chordsAuto = true;
-    commit();
-    toast('Đã hòa âm lại tự động.');
-  };
-  ($('zoom') as HTMLInputElement).oninput = (e) => {
-    roll.pxPerTick = Number((e.target as HTMLInputElement).value);
-    roll.draw();
-  };
-  ($('grid') as HTMLSelectElement).onchange = () => {
-    roll.grid = grid();
-    roll.draw();
-  };
-  $('btnPlay').onclick = () => (playing ? stopAll() : playSong());
-  $('dockPlay').onclick = () => (playing ? stopAll() : playSong());
-  $('dockRec').onclick = () => {
-    $('recordCard').scrollIntoView({ block: 'start' });
-    void toggleRecord();
-  };
-  $('dockEdit').onclick = () => $('editCard').scrollIntoView({ block: 'start' });
-  $('dockSheet').onclick = () => $('sheetCard').scrollIntoView({ block: 'start' });
-  const bumpTempo = (d: number) => {
-    const inp = $('tempo') as HTMLInputElement;
-    inp.value = String(Math.max(40, Math.min(200, (Number(inp.value) || 80) + d)));
-    readSettings();
-    commit({ rederive: false });
-  };
-  $('tempoDown').onclick = () => bumpTempo(-5);
-  $('tempoUp').onclick = () => bumpTempo(5);
+  ($('tempo') as HTMLInputElement).onchange = (e) => setTempo(Number((e.target as HTMLInputElement).value));
+  $('tempoDown').onclick = () => setTempo(cs.tempo - 5);
+  $('tempoUp').onclick = () => setTempo(cs.tempo + 5);
   document.querySelectorAll<HTMLButtonElement>('#meterSeg button').forEach((b) => {
     b.onclick = () => {
-      ($('meter') as HTMLSelectElement).value = b.dataset.v!;
-      $('meter').dispatchEvent(new Event('change'));
+      snapshot();
+      cs.beatsPerMeasure = Number(b.dataset.v);
+      renderAll();
+      persist();
     };
   });
-  const cm = $('clickMode') as HTMLSelectElement;
-  try {
-    const saved = localStorage.getItem('hrn.clickMode');
-    if (saved) cm.value = saved;
-  } catch {
-    /* bỏ qua */
-  }
-  cm.onchange = () => {
-    try {
-      localStorage.setItem('hrn.clickMode', cm.value);
-    } catch {
-      /* bỏ qua */
-    }
-    updateRecHint();
-  };
-  updateRecHint();
-  $('btnStop').onclick = stopAll;
-  $('btnVoice').onclick = async () => {
-    if (!audio16k) return;
-    stopAll();
-    await (await getPlayer()).playVoice(audio16k);
-  };
-  $('btnAssign').onclick = assignFromTextarea;
-  $('btnAsr').onclick = recognizeLyrics;
-  $('btnNew').onclick = () => {
-    stopAll();
+  ($('lh') as HTMLSelectElement).onchange = (e) => {
+    cs.lhPattern = (e.target as HTMLSelectElement).value as ComposeSong['lhPattern'];
     persist();
-    song = newSong({ tempo: song.tempo, beatsPerMeasure: song.beatsPerMeasure, lhPattern: song.lhPattern });
-    audio16k = null;
-    undoStack.length = 0;
-    redoStack.length = 0;
-    roll.selected = null;
-    commit({ save: false });
-    $('recordCard').scrollIntoView({ behavior: 'smooth' });
   };
-  $('btnOpen').onclick = openSongs;
+  ($('key') as HTMLSelectElement).onchange = (e) => {
+    const v = (e.target as HTMLSelectElement).value;
+    if (v === 'auto') cs.keyAuto = true;
+    else {
+      const [t, m] = v.split(':');
+      cs.keyAuto = false;
+      cs.key = { tonic: Number(t), mode: m as 'major' | 'minor' };
+    }
+    renderAll();
+    if (cur !== null) renderEditor();
+    persist();
+  };
+
+  $('lyricsDone').onclick = () => {
+    const text = ($('lyrics') as HTMLTextAreaElement).value;
+    if (!text.trim()) return toast('Hãy gõ lời bài hát trước.');
+    snapshot();
+    cs.lyricsText = text;
+    cs.words = relyric(cs.words, text);
+    renderAll();
+    persist();
+    const first = cs.words.findIndex((w) => !w.done);
+    if (first >= 0) openEditor(first);
+  };
+  $('btnEditLyrics').onclick = () => {
+    closeEditor();
+    ($('lyrics') as HTMLTextAreaElement).value = cs.lyricsText || cs.words.map((w) => w.text + (w.br ? '\n' : ' ')).join('').trim();
+    $('songView').hidden = true;
+    $('lyricsEdit').hidden = false;
+    $('lyricsCancel').hidden = false;
+  };
+  $('lyricsCancel').onclick = () => renderAll();
+  $('btnSuggest').onclick = () => {
+    if (!cs.words.some((w) => w.midi !== null && w.done)) return toast('Viết nốt cho vài chữ trước, rồi app mới gợi ý hợp âm được.');
+    if (cs.words.some((w) => w.chord) && !confirm('Thay các hợp âm hiện có bằng hợp âm gợi ý?')) return;
+    snapshot();
+    cs.words = suggestChords(cs);
+    renderAll();
+    persist();
+    toast('Đã gợi ý hợp âm. Bấm vào chữ để đổi nếu muốn.');
+  };
+
+  // bảng chọn nốt
+  $('edOk').onclick = okNext;
+  $('edPrev').onclick = () => go(-1);
+  $('edNext').onclick = () => go(1);
+  $('edClose').onclick = () => closeEditor();
+  $('edListen').onclick = preview;
+  $('edClear').onclick = () => {
+    if (!draft) return;
+    draft.midi = null;
+    dirty = true;
+    renderEditor();
+    renderLines();
+  };
+  $('octDown').onclick = () => draft && setDraftMidi((draft.midi ?? 60) - 12);
+  $('octUp').onclick = () => draft && setDraftMidi((draft.midi ?? 60) + 12);
   $('chordOk').onclick = () => {
     const c = parseChordName(($('chordInput') as HTMLInputElement).value);
     if (!c) return toast('Không hiểu tên hợp âm. Ví dụ: C, Am, F#m, Bb, G7, Bdim.');
-    setChord(chordTarget, c);
     ($('chordDialog') as HTMLDialogElement).close();
+    setDraftChord(c);
   };
-  bindEditing();
-  bindExports();
+
+  document.addEventListener('keydown', (e) => {
+    const tag = (document.activeElement?.tagName ?? '').toLowerCase();
+    if (tag === 'input' || tag === 'textarea' || tag === 'select') return;
+    if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z') {
+      e.preventDefault();
+      undo();
+      return;
+    }
+    if (cur === null || !draft) {
+      if (e.key === ' ') {
+        e.preventDefault();
+        playing ? stopPlay() : void play();
+      }
+      return;
+    }
+    const map: Record<string, () => void> = {
+      ArrowUp: () => setDraftMidi((draft!.midi ?? 60) + 1),
+      ArrowDown: () => setDraftMidi((draft!.midi ?? 60) - 1),
+      ArrowLeft: () => go(-1),
+      ArrowRight: () => go(1),
+      Enter: okNext,
+      Escape: () => closeEditor(),
+    };
+    if (map[e.key]) {
+      e.preventDefault();
+      map[e.key]();
+    }
+  });
+
+  // nghe thử
+  $('btnPlay').onclick = () => (playing ? stopPlay() : void play());
+  $('btnSheet').onclick = openSheet;
+  $('btnUndo').onclick = undo;
+
+  // menu
+  $('btnMenu').onclick = () => ($('menuDialog') as HTMLDialogElement).showModal();
+  $('menuDialog').addEventListener('click', (e) => {
+    const t = (e.target as HTMLElement).closest('button');
+    const act = t?.dataset.act;
+    if (!act) return;
+    ($('menuDialog') as HTMLDialogElement).close();
+    if (act === 'new') newSongAction();
+    else if (act === 'open') openSongs();
+    else if (act === 'sheet') void openSheet();
+    else if (act === 'midi' && hasMusic()) download(midiBytes(), 'audio/midi', `${safeName()}.mid`);
+    else if (act === 'xml' && hasMusic()) {
+      const { song, chords } = toSong(cs);
+      download(songToMusicXml(song, chords), 'application/vnd.recordare.musicxml+xml', `${safeName()}.musicxml`);
+    } else if (act === 'share' && hasMusic()) {
+      const f = new File([midiBytes()], `${safeName()}.mid`, { type: 'audio/midi' });
+      navigator.share({ files: [f], title: cs.title }).catch(() => undefined);
+    }
+  });
+  const probe = new File([new Uint8Array(1)], 'a.mid', { type: 'audio/midi' });
+  $('menuShare').hidden = !navigator.canShare?.({ files: [probe] });
+  $('sheetPdf').onclick = () => window.print();
+  $('sheetMidi').onclick = () => hasMusic() && download(midiBytes(), 'audio/midi', `${safeName()}.mid`);
 }
 
+// ---------- khởi động ----------
 bind();
+buildKeyboard();
 $('appVersion').textContent = `v${APP_VERSION}`;
-$('footVersion').textContent = `v${APP_VERSION}`;
+$('menuVersion').textContent = `v${APP_VERSION}`;
 setupInstall(
   [$('btnInstall')],
   () => ($('iosDialog') as HTMLDialogElement).showModal(),
-  () => toast('Đã cài Hát ra nhạc ra màn hình chính 🎉'),
+  () => toast('Đã cài app ra màn hình chính 🎉'),
 );
 setupUpdates({
-  canReloadNow: () => !recSession,
+  canReloadNow: () => true,
   beforeReload: () => {
-    try {
-      song.updated = Date.now();
-      saveSong(song);
-    } catch {
-      /* bỏ qua */
-    }
+    if (cur !== null && dirty) commitDraft(false);
+    cs.updated = Date.now();
+    saveSong(cs);
   },
 });
-roll.grid = grid();
-derive();
-render();
-renderBeats(null);
-void loadAudio(song.id).then((a) => {
-  if (a && !audio16k) {
-    audio16k = a;
-    render();
-  }
-});
+renderAll();

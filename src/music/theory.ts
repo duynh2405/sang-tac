@@ -148,3 +148,12 @@ export function diatonicChords(key: Key): DiatonicChord[] {
     { degree: 'v', root: mod12(t + 7), quality: 'min' },
   ];
 }
+
+export function midiToHz(m: number): number {
+  return 440 * Math.pow(2, (m - 69) / 12);
+}
+
+/** Tên nốt kiểu Việt: Sol4, Fa#3… */
+export function solfegeName(midi: number): string {
+  return SOLFEGE[mod12(midi)] + (Math.floor(midi / 12) - 1);
+}

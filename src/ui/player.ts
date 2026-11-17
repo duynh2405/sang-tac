@@ -1,7 +1,7 @@
 import * as Tone from 'tone';
 import { TPB, type Chord, type Song } from '../model';
 import { generateLeftHand } from '../music/accompaniment';
-import { midiToHz } from '../audio/pitch';
+import { midiToHz } from '../music/theory';
 
 let sampler: Tone.Sampler | null = null;
 let fallback: Tone.PolySynth | null = null;
@@ -120,30 +120,13 @@ export async function previewNote(midi: number): Promise<void> {
   instrument().play(midi, 0.35, Tone.now(), 0.7);
 }
 
-/** Phát lại bản thu giọng gốc. */
-let voiceSrc: AudioBufferSourceNode | null = null;
-export async function playVoice(audio16k: Float32Array, onEnd?: () => void): Promise<void> {
-  await Tone.start();
-  stopVoice();
-  const ctx = Tone.getContext().rawContext as AudioContext;
-  const buf = ctx.createBuffer(1, audio16k.length, 16000);
-  buf.copyToChannel(audio16k as Float32Array<ArrayBuffer>, 0);
-  const src = ctx.createBufferSource();
-  src.buffer = buf;
-  src.connect(ctx.destination);
-  src.onended = () => {
-    if (voiceSrc === src) voiceSrc = null;
-    onEnd?.();
-  };
-  src.start();
-  voiceSrc = src;
-}
 
-export function stopVoice(): void {
-  try {
-    voiceSrc?.stop();
-  } catch {
-    /* đã dừng */
-  }
-  voiceSrc = null;
+/** Nghe thử một chữ: nốt giai điệu + hợp âm tay trái (nếu có). */
+export async function previewWord(midi: number | null, chordMidis: number[], seconds: number): Promise<void> {
+  await Tone.start();
+  void loadPiano();
+  const inst = instrument();
+  const t = Tone.now();
+  chordMidis.forEach((m) => inst.play(m, seconds, t, 0.45));
+  if (midi !== null) inst.play(midi, seconds, t, 0.85);
 }
