@@ -305,6 +305,32 @@ textarea {
   gap: 4px;
   padding: 4px 0;
 }
+.lp {
+  flex: none;
+  align-self: flex-start;
+  width: 34px;
+  height: 34px;
+  min-height: 34px;
+  margin: 17px 4px 0 0;
+  padding: 0;
+  border-radius: 50%;
+  border: 1px solid var(--line);
+  background: var(--card-2);
+  color: var(--brand);
+  font-size: 13px;
+}
+.lp:hover {
+  background: var(--brand-soft);
+}
+.line.playing-line .lp {
+  background: var(--ok);
+  border-color: var(--ok);
+  color: #fff;
+}
+.line.playing-line {
+  background: color-mix(in srgb, var(--ok) 7%, transparent);
+  border-radius: 12px;
+}
 .line + .line {
   border-top: 1px dashed var(--line);
   padding-top: 8px;

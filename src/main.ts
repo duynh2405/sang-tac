@@ -34,6 +34,7 @@ let cur: number | null = null; // chữ đang chọn
 let draft: { midi: number | null; dur: number; rest: number; chord: WordChord | null } | null = null;
 let dirty = false;
 let playing = false;
+let playingLine: number | null = null; // câu đang phát (null = cả bài)
 const undoStack: string[] = [];
 
 const DURS: [number, string, string][] = [
@@ -120,8 +121,22 @@ function renderLines() {
   cs.words.forEach((w, i) => w.midi !== null && noteWord.push(i));
   const warnWords = new Set(checkTones(song.notes).map((w) => noteWord[w.noteIndex]));
 
-  let line = document.createElement('div');
-  line.className = 'line';
+  let lineNo = 0;
+  const newLine = () => {
+    const l = document.createElement('div');
+    l.className = 'line' + (lineNo === playingLine ? ' playing-line' : '');
+    l.dataset.line = String(lineNo);
+    const pb = document.createElement('button');
+    pb.className = 'lp';
+    const n = lineNo;
+    pb.title = `Nghe câu ${n + 1}`;
+    pb.setAttribute('aria-label', `Nghe câu ${n + 1}`);
+    pb.textContent = n === playingLine ? '■' : '▶';
+    pb.onclick = () => (playingLine === n ? stopPlay() : void playLine(n));
+    l.append(pb);
+    return l;
+  };
+  let line = newLine();
   cs.words.forEach((w, i) => {
     const b = document.createElement('button');
     b.className = 'w' + (w.done ? ' done' : '') + (i === cur ? ' cur' : '') + (warnWords.has(i) ? ' warn' : '');
@@ -146,11 +161,11 @@ function renderLines() {
     line.append(b);
     if (w.br) {
       box.append(line);
-      line = document.createElement('div');
-      line.className = 'line';
+      lineNo++;
+      line = newLine();
     }
   });
-  if (line.childElementCount) box.append(line);
+  if (line.childElementCount > 1) box.append(line);
 
   const done = cs.words.filter((w) => w.done).length;
   $('status').innerHTML = `Đã viết <b>${done}</b>/${cs.words.length} chữ · ${measureCount(cs)} ô nhịp · ${keyName(key)}`;
@@ -410,25 +425,71 @@ function setPlayUi(on: boolean) {
   $('btnPlay').textContent = on ? '■' : '▶';
 }
 
-async function play() {
-  if (cur !== null) closeEditor();
-  const { song, chords } = toSong(cs);
-  if (!song.notes.length && !chords.length) return toast('Chưa có nốt nào. Bấm vào một chữ để bắt đầu.');
+/** Các câu (dòng lời): chỉ số chữ đầu và cuối. */
+function lineRanges(): { first: number; last: number }[] {
+  const out: { first: number; last: number }[] = [];
+  let first = 0;
+  cs.words.forEach((w, i) => {
+    if (w.br || i === cs.words.length - 1) {
+      out.push({ first, last: i });
+      first = i + 1;
+    }
+  });
+  return out;
+}
+
+function lineOfWord(i: number): number {
+  return lineRanges().findIndex((r) => i >= r.first && i <= r.last);
+}
+
+async function playLine(n: number) {
+  const r = lineRanges()[n];
+  if (!r) return;
+  const starts = wordStarts(cs.words);
+  const last = cs.words[r.last];
+  await play({ from: starts[r.first], to: starts[r.last] + last.dur + last.rest, line: n });
+}
+
+async function play(range?: { from: number; to: number; line: number }) {
+  // đang mở bảng chọn nốt mà nghe câu: lưu thay đổi nhưng giữ bảng mở
+  if (cur !== null) {
+    if (range) {
+      if (dirty) commitDraft(false);
+    } else closeEditor();
+  }
+  stopPlay();
+  const { song, chords: allChords } = toSong(cs);
+  const from = range?.from ?? 0;
+  const to = range?.to ?? Infinity;
+  const hasNotes = song.notes.some((n) => n.start >= from && n.start < to);
+  if (!hasNotes) return toast(range ? 'Câu này chưa có nốt nào.' : 'Chưa có nốt nào. Bấm vào một chữ để bắt đầu.');
+  // cắt hợp âm theo đoạn được phát để tay trái vào đúng từ đầu câu
+  const chords = allChords
+    .filter((c) => c.start < to && c.start + c.dur > from)
+    .map((c) => {
+      const s = Math.max(c.start, from);
+      return { ...c, start: s, dur: Math.min(c.start + c.dur, to) - s };
+    });
   playing = true;
+  playingLine = range ? range.line : null;
   setPlayUi(true);
+  renderLines();
   const p = await getPlayer();
   await p.play(song, chords, {
     melody: true,
     accompaniment: ($('playAcc') as HTMLInputElement).checked,
+    fromTick: from,
+    toTick: range ? to : undefined,
     onEnd: stopPlay,
   });
   const starts = wordStarts(cs.words);
-  const total = Math.max(1, totalTicks(cs.words));
+  const total = Math.max(1, (range ? to : totalTicks(cs.words)) - from);
   const tick = () => {
     if (!playing) return;
     const sec = p.position();
-    const t = sec < 0 ? 0 : (sec * cs.tempo * TPB) / 60;
-    ($('pfill') as HTMLElement).style.width = `${Math.min(100, (t / total) * 100)}%`;
+    const rel = sec < 0 ? 0 : (sec * cs.tempo * TPB) / 60;
+    const t = from + rel;
+    ($('pfill') as HTMLElement).style.width = `${Math.min(100, (rel / total) * 100)}%`;
     const wi = starts.findIndex((s, i) => t >= s && t < s + cs.words[i].dur + cs.words[i].rest);
     document.querySelectorAll('.w.playing').forEach((e) => e.classList.remove('playing'));
     if (wi >= 0) document.querySelector(`.w[data-i="${wi}"]`)?.classList.add('playing');
@@ -438,9 +499,12 @@ async function play() {
 }
 
 function stopPlay() {
+  const wasLine = playingLine !== null;
   playing = false;
+  playingLine = null;
   playerMod?.stop();
   setPlayUi(false);
+  if (wasLine) renderLines();
   ($('pfill') as HTMLElement).style.width = '0';
   document.querySelectorAll('.w.playing').forEach((e) => e.classList.remove('playing'));
 }
@@ -613,6 +677,11 @@ function bind() {
   $('edNext').onclick = () => go(1);
   $('edClose').onclick = () => closeEditor();
   $('edListen').onclick = preview;
+  $('edLine').onclick = () => {
+    if (cur === null) return;
+    const n = lineOfWord(cur);
+    playingLine === n ? stopPlay() : void playLine(n);
+  };
   $('edClear').onclick = () => {
     if (!draft) return;
     draft.midi = null;

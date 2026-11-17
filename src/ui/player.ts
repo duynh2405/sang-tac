@@ -59,6 +59,7 @@ export interface PlayOptions {
   melody: boolean;
   accompaniment: boolean;
   fromTick?: number;
+  toTick?: number; // dừng tại đây (để phát từng câu)
   onEnd?: () => void;
 }
 
@@ -71,20 +72,23 @@ export async function play(song: Song, chords: Chord[], o: PlayOptions): Promise
   const tr = Tone.getTransport();
   const tickSec = 60 / song.tempo / TPB;
   const from = o.fromTick ?? 0;
+  const to = o.toTick ?? Infinity;
   const inst = instrument();
   let endTick = from;
   if (o.melody) {
     for (const n of song.notes) {
-      if (n.start < from) continue;
-      tr.schedule((time) => inst.play(n.midi, n.dur * tickSec * 0.95, time, 0.85), (n.start - from) * tickSec);
-      endTick = Math.max(endTick, n.start + n.dur);
+      if (n.start < from || n.start >= to) continue;
+      const d = Math.min(n.dur, to - n.start);
+      tr.schedule((time) => inst.play(n.midi, d * tickSec * 0.95, time, 0.85), (n.start - from) * tickSec);
+      endTick = Math.max(endTick, n.start + d);
     }
   }
   if (o.accompaniment) {
     for (const n of generateLeftHand(chords, song.lhPattern, song.beatsPerMeasure)) {
-      if (n.start < from) continue;
-      tr.schedule((time) => inst.play(n.midi, n.dur * tickSec * 0.95, time, 0.5), (n.start - from) * tickSec);
-      endTick = Math.max(endTick, n.start + n.dur);
+      if (n.start < from || n.start >= to) continue;
+      const d = Math.min(n.dur, to - n.start);
+      tr.schedule((time) => inst.play(n.midi, d * tickSec * 0.95, time, 0.5), (n.start - from) * tickSec);
+      endTick = Math.max(endTick, n.start + d);
     }
   }
   tr.start('+0.05');
