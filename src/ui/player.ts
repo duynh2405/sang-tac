@@ -126,6 +126,21 @@ export async function previewNote(midi: number): Promise<void> {
 
 
 /** Nghe thử một chữ: nốt giai điệu + hợp âm tay trái (nếu có). */
+/** Nghe thử một chữ có luyến: các nốt hát nối tiếp nhau trên nền hợp âm. */
+export async function previewSeq(seq: { midi: number; secs: number }[], chordMidis: number[]): Promise<void> {
+  await Tone.start();
+  void loadPiano();
+  const inst = instrument();
+  const t0 = Tone.now();
+  const total = seq.reduce((s, x) => s + x.secs, 0);
+  chordMidis.forEach((m) => inst.play(m, total, t0, 0.45));
+  let t = t0;
+  for (const x of seq) {
+    inst.play(x.midi, x.secs, t, 0.85);
+    t += x.secs;
+  }
+}
+
 export async function previewWord(midi: number | null, chordMidis: number[], seconds: number): Promise<void> {
   await Tone.start();
   void loadPiano();

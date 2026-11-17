@@ -176,3 +176,37 @@ describe('sổ sáng tác', () => {
     expect(chords).toEqual([]);
   });
 });
+
+import { toSong as toSong2, newCompose as nc2, wordStarts as ws2 } from '../src/compose';
+import { songToMusicXml as xml2 } from '../src/music/musicxml';
+import { checkTones as ct2 } from '../src/lyrics/vietnamese';
+import { encodeSong, decodeSong } from '../src/share';
+describe('luyến (nhiều nốt một chữ)', () => {
+  const cs = nc2({ beatsPerMeasure: 4, keyAuto: false });
+  cs.words = [
+    { text: 'em', midi: 64, dur: 2, rest: 0, chord: null, br: false, done: true, slur: [{ midi: 67, dur: 2 }, { midi: 65, dur: 4 }] },
+    { text: 'ơi', midi: 62, dur: 4, rest: 0, chord: null, br: false, done: true },
+  ];
+  it('tính thời gian và tạo nốt luyến', () => {
+    expect(ws2(cs.words)).toEqual([0, 8]);
+    const { song } = toSong2(cs);
+    const real = song.notes.filter((n) => n.word !== undefined);
+    expect(real.map((n) => [n.start, n.midi, n.lyric ?? '', n.slur ?? ''])).toEqual([
+      [0, 64, 'em', 'start'],
+      [2, 67, '', 'continue'],
+      [4, 65, '', 'stop'],
+      [8, 62, 'ơi', ''],
+    ]);
+    const x = xml2(song, []);
+    expect(x).toContain('<slur type="start" number="1"/>');
+    expect(x).toContain('<slur type="stop" number="1"/>');
+    expect((x.match(/<lyric /g) ?? []).length).toBe(2);
+    // dấu thanh so với nốt luyến cuối (Fa4 -> Rê4)
+    expect(Array.isArray(ct2(song.notes))).toBe(true);
+  });
+  it('giữ luyến khi gửi link', async () => {
+    const b = await decodeSong(await encodeSong(cs));
+    expect(b.words[0].slur).toEqual(cs.words[0].slur);
+    expect(b.words[1].slur).toBeUndefined();
+  });
+});

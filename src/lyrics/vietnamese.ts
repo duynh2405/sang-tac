@@ -73,9 +73,14 @@ export interface ToneWarning {
 export function checkTones(notes: Note[]): ToneWarning[] {
   const warns: ToneWarning[] = [];
   for (let i = 1; i < notes.length; i++) {
-    const a = notes[i - 1];
+    // a = nốt ngay trước (có thể là nốt luyến cuối của chữ trước), lấy dấu thanh theo chữ của nó
+    const prev = notes[i - 1];
     const b = notes[i];
-    if (!a.lyric || !b.lyric) continue;
+    if (!b.lyric) continue;
+    let k = i - 1;
+    while (k >= 0 && !notes[k].lyric) k--;
+    if (k < 0) continue;
+    const a = { ...prev, lyric: notes[k].lyric! };
     // chỉ so trong cùng câu hát (cách nhau không quá 1 phách lặng)
     if (b.start - (a.start + a.dur) > 4) continue;
     const ta = toneOf(a.lyric);

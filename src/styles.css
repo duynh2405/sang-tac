@@ -1431,6 +1431,77 @@ button.play.on {
   border-radius: 14px;
 }
 
+/* luyến: nhiều nốt trên một chữ */
+.slur-row {
+  align-items: center;
+}
+.slur-tabs {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px;
+  flex: 1;
+  min-width: 0;
+}
+.slur-tabs .st {
+  display: grid;
+  min-height: 40px;
+  padding: 3px 12px;
+  border-radius: 12px;
+  font-weight: 800;
+  line-height: 1.15;
+}
+.slur-tabs .st small {
+  font-weight: 500;
+  font-size: 10.5px;
+  color: var(--muted);
+}
+.slur-tabs .st.on {
+  background: var(--brand);
+  border-color: var(--brand);
+  color: #fff;
+}
+.slur-tabs .st.on small {
+  color: #fff;
+  opacity: 0.85;
+}
+.slur-tabs .st-del {
+  min-height: 28px;
+  width: 28px;
+  padding: 0;
+  margin-left: -8px;
+  border-radius: 50%;
+  font-size: 12px;
+  color: var(--muted);
+  align-self: flex-start;
+}
+.slur-tabs .st-arc {
+  color: var(--brand);
+  font-size: 20px;
+  line-height: 1;
+}
+.slur-tabs .st-add {
+  border-style: dashed;
+  color: var(--brand-ink);
+  background: transparent;
+  min-height: 40px;
+}
+.pd.m {
+  left: calc(4px + var(--x) * (100% - 8px));
+  width: calc(var(--w) * (100% - 8px) - 3px);
+  min-width: 6px;
+}
+.w.cur .pd.act {
+  background: var(--brand);
+  box-shadow:
+    0 0 0 2px var(--card),
+    0 0 0 4px color-mix(in srgb, var(--brand) 45%, transparent);
+}
+.w.melisma .tx {
+  border-bottom-left-radius: 2px;
+  border-bottom-right-radius: 2px;
+}
+
 /* phím đàn: lún xuống khi bấm */
 .kb-wrap {
   background: #10151d;

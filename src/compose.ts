@@ -9,6 +9,12 @@ export interface WordChord {
   quality: ChordQuality;
 }
 
+/** Nốt luyến: nốt hát tiếp trên cùng một chữ, sau nốt chính. */
+export interface SlurNote {
+  midi: number;
+  dur: number;
+}
+
 export interface Word {
   text: string;
   midi: number | null; // null = chưa chọn nốt (tính như dấu lặng)
@@ -17,7 +23,15 @@ export interface Word {
   chord: WordChord | null; // hợp âm bắt đầu từ chữ này
   br: boolean; // xuống dòng sau chữ này
   done: boolean; // người dùng đã bấm OK
+  slur?: SlurNote[]; // tối đa 2 nốt luyến thêm (cả chữ tối đa 3 nốt)
 }
+
+/** Thời gian hát của chữ (nốt chính + nốt luyến), chưa tính nghỉ. */
+export const sungLen = (w: Word) => w.dur + (w.midi !== null && w.slur ? w.slur.reduce((s, x) => s + x.dur, 0) : 0);
+/** Tổng thời gian chữ chiếm (hát + nghỉ). */
+export const wordLen = (w: Word) => sungLen(w) + w.rest;
+/** Cao độ cuối cùng của chữ (nốt luyến cuối nếu có). */
+export const lastMidi = (w: Word) => (w.midi !== null && w.slur?.length ? w.slur[w.slur.length - 1].midi : w.midi);
 
 export interface ComposeSong {
   id: string;
@@ -103,13 +117,13 @@ export function wordStarts(words: Word[]): number[] {
   let t = 0;
   for (const w of words) {
     starts.push(t);
-    t += w.dur + w.rest;
+    t += wordLen(w);
   }
   return starts;
 }
 
 export function totalTicks(words: Word[]): number {
-  return words.reduce((s, w) => s + w.dur + w.rest, 0);
+  return words.reduce((s, w) => s + wordLen(w), 0);
 }
 
 /** Chuyển sang dạng bài hát chuẩn để phát nhạc, vẽ sheet, xuất MIDI. */
@@ -117,7 +131,14 @@ export function toSong(cs: ComposeSong): { song: Song; chords: Chord[] } {
   const starts = wordStarts(cs.words);
   const notes: Note[] = [];
   cs.words.forEach((w, i) => {
-    if (w.midi !== null) notes.push({ start: starts[i], dur: w.dur, midi: w.midi, lyric: w.text });
+    if (w.midi === null) return;
+    const sl = w.slur ?? [];
+    notes.push({ start: starts[i], dur: w.dur, midi: w.midi, lyric: w.text, word: i, slur: sl.length ? 'start' : undefined });
+    let t = starts[i] + w.dur;
+    sl.forEach((x, k) => {
+      notes.push({ start: t, dur: x.dur, midi: x.midi, word: i, slur: k === sl.length - 1 ? 'stop' : 'continue' });
+      t += x.dur;
+    });
   });
   const mt = cs.beatsPerMeasure * TPB;
   const total = totalTicks(cs.words);
@@ -170,7 +191,7 @@ export function suggestChords(cs: ComposeSong): Word[] {
   let last: WordChord | null = null;
   for (const c of chords) {
     // chữ đang vang tại đầu ô nhịp (hoặc chữ đầu tiên sau đó)
-    let wi = starts.findIndex((s, i) => s <= c.start && c.start < s + cs.words[i].dur + cs.words[i].rest);
+    let wi = starts.findIndex((s, i) => s <= c.start && c.start < s + wordLen(cs.words[i]));
     if (wi < 0) wi = starts.findIndex((s) => s >= c.start);
     if (wi < 0) continue;
     const ch = { root: c.root, quality: c.quality };

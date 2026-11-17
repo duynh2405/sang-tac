@@ -12,6 +12,8 @@ export interface Note {
   dur: number; // tick (>= 1)
   midi: number; // cao độ MIDI (60 = C4)
   lyric?: string; // một âm tiết tiếng Việt
+  word?: number; // chỉ số chữ trong lời (để đối chiếu)
+  slur?: 'start' | 'continue' | 'stop'; // nốt luyến trong cùng một chữ
 }
 
 export interface Chord {

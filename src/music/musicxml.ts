@@ -7,6 +7,7 @@ interface Ev {
   dur: number;
   midis: number[]; // rỗng = dấu lặng
   lyric?: string;
+  slur?: 'start' | 'continue' | 'stop';
 }
 
 const DUR_TYPES: [number, string, boolean][] = [
@@ -107,13 +108,20 @@ function noteElements(
         const tieStop = !isFirstOfEvent;
         const ties = `${tieStop ? '<tie type="stop"/>' : ''}${tieStart ? '<tie type="start"/>' : ''}`;
         const tied = `${tieStop ? '<tied type="stop"/>' : ''}${tieStart ? '<tied type="start"/>' : ''}`;
+        const slurXml =
+          mi === 0 && isFirstOfEvent && ev.slur === 'start'
+            ? '<slur type="start" number="1"/>'
+            : mi === 0 && isLastOfEvent && ev.slur === 'stop'
+              ? '<slur type="stop" number="1"/>'
+              : '';
+        const notations = tied + slurXml;
         const lyric =
           mi === 0 && isFirstOfEvent && ev.lyric
             ? `<lyric number="1"><syllabic>single</syllabic><text>${esc(ev.lyric)}</text></lyric>`
             : '';
         xml += `<note>${mi > 0 ? '<chord/>' : ''}${pitchXml(m, key)}<duration>${len}</duration>${ties}<voice>${voice}</voice><type>${type}</type>${
           dotted ? '<dot/>' : ''
-        }<staff>${staff}</staff>${tied ? `<notations>${tied}</notations>` : ''}${lyric}</note>`;
+        }<staff>${staff}</staff>${notations ? `<notations>${notations}</notations>` : ''}${lyric}</note>`;
       });
     }
     cursor += len;
@@ -129,7 +137,7 @@ export function songToMusicXml(song: Song, chords: Chord[]): string {
   const nMeasures = end / mTicks;
 
   const melody = fillRests(
-    song.notes.map((n) => ({ start: n.start, dur: n.dur, midis: [n.midi], lyric: n.lyric })),
+    song.notes.map((n) => ({ start: n.start, dur: n.dur, midis: [n.midi], lyric: n.lyric, slur: n.slur })),
     end,
   );
   // tay trái: gom nốt cùng thời điểm & trường độ thành hợp âm

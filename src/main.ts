@@ -15,7 +15,11 @@ import {
   toSong,
   totalTicks,
   wordStarts,
+  wordLen,
+  sungLen,
+  lastMidi,
   type ComposeSong,
+  type SlurNote,
   type WordChord,
 } from './compose';
 import { listSongs, saveSong, deleteSong } from './storage';
@@ -33,7 +37,11 @@ const getPlayer = async () => (playerMod ??= await import('./ui/player'));
 // ---------- trạng thái ----------
 let cs: ComposeSong = listSongs()[0] ?? demoCompose();
 let cur: number | null = null; // chữ đang chọn
-let draft: { midi: number | null; dur: number; rest: number; chord: WordChord | null } | null = null;
+let draft: { midi: number | null; dur: number; rest: number; chord: WordChord | null; slur: SlurNote[] } | null = null;
+/** Nốt đang sửa trong chữ: 0 = nốt chính, 1–2 = nốt luyến. */
+let sub = 0;
+const activeMidi = () => (!draft ? null : sub > 0 ? (draft.slur[sub - 1]?.midi ?? null) : draft.midi);
+const activeDur = () => (!draft ? 0 : sub > 0 ? (draft.slur[sub - 1]?.dur ?? 0) : draft.dur);
 let dirty = false;
 let playing = false;
 let playingLine: number | null = null; // câu đang phát (null = cả bài)
@@ -60,8 +68,9 @@ const KB_LO = 48; // C3
 const KB_HI = 83; // B5
 
 const beatsLabel = (t: number) => {
-  const b = t / TPB;
-  return b === 0.25 ? '¼' : b === 0.5 ? '½' : b === 0.75 ? '¾' : b === 1.5 ? '1½' : String(b);
+  const whole = Math.floor(t / TPB);
+  const frac = ['', '¼', '½', '¾'][t % TPB];
+  return whole === 0 ? frac || '0' : `${whole}${frac}`;
 };
 
 // ---------- lưu ----------
@@ -130,9 +139,7 @@ function renderLines() {
   const { song } = toSong(cs);
   const key = song.key;
   // cảnh báo dấu thanh (theo chỉ số nốt) -> chỉ số chữ
-  const noteWord: number[] = [];
-  cs.words.forEach((w, i) => w.midi !== null && noteWord.push(i));
-  const warnWords = new Set(checkTones(song.notes).map((w) => noteWord[w.noteIndex]));
+  const warnWords = new Set(checkTones(song.notes).map((w) => song.notes[w.noteIndex].word));
 
   // đường nét giai điệu: khoảng cao độ của từng câu
   const lineOfW: number[] = [];
@@ -144,8 +151,10 @@ function renderLines() {
       lineOfW[i] = n;
       const w = i === cur && draft ? { ...cs.words[i], ...draft, done: true } : cs.words[i];
       if (w.midi !== null && (w.done || i === cur)) {
-        lo = Math.min(lo, w.midi);
-        hi = Math.max(hi, w.midi);
+        for (const m of [w.midi, ...(w.slur ?? []).map((x) => x.midi)]) {
+          lo = Math.min(lo, m);
+          hi = Math.max(hi, m);
+        }
       }
     }
     // tối thiểu một quãng 7 để giai điệu ít biến động không bị phóng đại
@@ -205,7 +214,9 @@ function renderLines() {
     nt.className = 'nt';
     nt.textContent =
       shown.midi !== null && (w.done || i === cur)
-        ? `${solfegeName(shown.midi)} · ${beatsLabel(shown.dur)}${shown.rest ? ` +${beatsLabel(shown.rest)}` : ''}`
+        ? `${[shown.midi, ...(shown.slur ?? []).map((x) => x.midi)].map(solfegeName).join('⌒')} · ${beatsLabel(sungLen(shown))}${
+            shown.rest ? ` +${beatsLabel(shown.rest)}` : ''
+          }`
         : w.done
           ? `lặng · ${beatsLabel(shown.dur)}`
           : '';
@@ -213,11 +224,21 @@ function renderLines() {
     pc.className = 'pc';
     if (shown.midi !== null && (w.done || i === cur)) {
       const sp = span[lineOfW[i]];
-      const pd = document.createElement('i');
-      pd.className = 'pd';
-      pd.style.setProperty('--y', String(1 - (shown.midi - sp.lo) / (sp.hi - sp.lo)));
-      pd.style.setProperty('--len', String(Math.min(1, shown.dur / 16)));
-      pc.append(pd);
+      const seq = [{ midi: shown.midi, dur: shown.dur }, ...(shown.slur ?? [])];
+      const total = seq.reduce((s, x) => s + x.dur, 0);
+      let acc = 0;
+      seq.forEach((x, k) => {
+        const pd = document.createElement('i');
+        pd.className = seq.length > 1 ? 'pd m' : 'pd';
+        pd.style.setProperty('--y', String(1 - (x.midi - sp.lo) / (sp.hi - sp.lo)));
+        pd.style.setProperty('--len', String(Math.min(1, x.dur / 16)));
+        pd.style.setProperty('--x', String(acc / total));
+        pd.style.setProperty('--w', String(x.dur / total));
+        if (i === cur && k === sub) pd.classList.add('act');
+        pc.append(pd);
+        acc += x.dur;
+      });
+      if (seq.length > 1) b.classList.add('melisma');
     }
     if (i === justDone) b.classList.add('just');
     b.append(ch, pc, tx, nt);
@@ -284,7 +305,7 @@ function buildKeyboard() {
 }
 
 function highlightKey(scroll: boolean) {
-  const m = draft?.midi ?? null;
+  const m = activeMidi();
   document.querySelectorAll<HTMLElement>('#keyboard .key').forEach((k) => k.classList.toggle('on', Number(k.dataset.m) === m));
   if (scroll && m !== null) {
     const el = document.querySelector<HTMLElement>(`#keyboard .key[data-m="${m}"]`);
@@ -313,7 +334,9 @@ function openEditor(i: number) {
     dur: w.done ? w.dur : defaultDur(cs.words, i),
     rest: w.rest,
     chord: w.chord,
+    slur: w.done && w.midi !== null ? (w.slur ?? []).map((x) => ({ ...x })) : [],
   };
+  sub = 0;
   dirty = false; // chỉ lưu khi người dùng chỉnh hoặc bấm OK
   $('editor').hidden = false;
   renderEditor(true);
@@ -338,18 +361,21 @@ function renderEditor(scrollKeys = false) {
   $('edWord').textContent = w.text;
   ($('edPrev') as HTMLButtonElement).disabled = cur === 0;
   ($('edNext') as HTMLButtonElement).disabled = cur === cs.words.length - 1;
+  const am = activeMidi();
   $('edNote').innerHTML =
-    draft.midi === null ? 'Lặng <small>(không hát)</small>' : `${solfegeName(draft.midi)} <small>${midiName(draft.midi, key)}</small>`;
+    am === null ? 'Lặng <small>(không hát)</small>' : `${solfegeName(am)} <small>${midiName(am, key)}</small>`;
   highlightKey(scrollKeys);
+  renderSlurTabs();
 
   const dur = $('durChips');
   dur.innerHTML = '';
-  for (const [t, name, sub] of DURS) {
+  for (const [t, name, frac] of DURS) {
     const b = document.createElement('button');
-    b.className = t === draft.dur ? 'on' : '';
-    b.innerHTML = `${name}<small>${sub}</small>`;
+    b.className = t === activeDur() ? 'on' : '';
+    b.innerHTML = `${name}<small>${frac}</small>`;
     b.onclick = () => {
-      draft!.dur = t;
+      if (sub > 0) draft!.slur[sub - 1].dur = t;
+      else draft!.dur = t;
       dirty = true;
       renderEditor();
       renderLines();
@@ -412,7 +438,7 @@ function renderEditor(scrollKeys = false) {
     if (pi >= 0) {
       const a = cs.words[pi];
       const warns = checkTones([
-        { start: 0, dur: 4, midi: a.midi!, lyric: a.text },
+        { start: 0, dur: 4, midi: lastMidi(a)!, lyric: a.text },
         { start: 4, dur: 4, midi: draft.midi, lyric: w.text },
       ]);
       if (warns.length) {
@@ -425,11 +451,71 @@ function renderEditor(scrollKeys = false) {
 
 function setDraftMidi(m: number) {
   if (!draft) return;
-  draft.midi = Math.max(KB_LO - 12, Math.min(KB_HI + 12, m));
+  const v = Math.max(KB_LO - 12, Math.min(KB_HI + 12, m));
+  if (sub > 0 && draft.slur[sub - 1]) draft.slur[sub - 1].midi = v;
+  else draft.midi = v;
   dirty = true;
   renderEditor();
   renderLines();
   preview();
+}
+
+/** Hàng chọn nốt trong chữ: Nốt 1 (chính), Nốt 2–3 (luyến), nút thêm luyến. */
+function renderSlurTabs() {
+  const row = $('slurRow');
+  const box = $('slurTabs');
+  box.innerHTML = '';
+  if (!draft || draft.midi === null) {
+    row.hidden = true;
+    return;
+  }
+  row.hidden = false;
+  const seq = [{ midi: draft.midi, dur: draft.dur }, ...draft.slur];
+  seq.forEach((x, k) => {
+    const b = document.createElement('button');
+    b.className = 'st' + (k === sub ? ' on' : '');
+    b.innerHTML = `<small>Nốt ${k + 1}</small>${solfegeName(x.midi)}`;
+    b.onclick = () => {
+      sub = k;
+      renderEditor(true);
+      renderLines();
+    };
+    box.append(b);
+    if (k > 0) {
+      const del = document.createElement('button');
+      del.className = 'st-del';
+      del.textContent = '✕';
+      del.title = `Bỏ nốt luyến ${k + 1}`;
+      del.setAttribute('aria-label', del.title);
+      del.onclick = () => {
+        draft!.slur.splice(k - 1, 1);
+        sub = Math.min(sub, draft!.slur.length);
+        dirty = true;
+        renderEditor(true);
+        renderLines();
+        preview();
+      };
+      box.append(del);
+    }
+    if (k < seq.length - 1) box.append(Object.assign(document.createElement('span'), { className: 'st-arc', textContent: '⌒' }));
+  });
+  if (seq.length < 3) {
+    const add = document.createElement('button');
+    add.className = 'st-add';
+    add.textContent = seq.length === 1 ? '＋ Luyến thêm nốt' : '＋';
+    add.title = 'Thêm một nốt hát luyến trên cùng chữ này';
+    add.onclick = () => {
+      const last = seq[seq.length - 1];
+      // nốt luyến mới: cao hơn một bậc (2 nửa cung), dài nửa phách
+      draft!.slur.push({ midi: last.midi + 2, dur: Math.max(1, Math.min(last.dur, 2)) });
+      sub = draft!.slur.length;
+      dirty = true;
+      renderEditor(true);
+      renderLines();
+      preview();
+    };
+    box.append(add);
+  }
 }
 
 function setDraftChord(c: WordChord | null) {
@@ -446,7 +532,13 @@ function preview() {
   const ch = effectiveChord(cur);
   // bass (G2–F#3) + hợp âm (G3–F#4), giống phần đệm tay trái
   const lh = ch ? [43 + mod12(ch.root - 7), ...chordPcs(ch).map((pc) => 55 + mod12(pc - 7))] : [];
-  const secs = Math.min(1.6, (draft.dur * 60) / cs.tempo / TPB);
+  const tickSec = 60 / cs.tempo / TPB;
+  if (draft.midi !== null && draft.slur.length) {
+    const seq = [{ midi: draft.midi, dur: draft.dur }, ...draft.slur].map((x) => ({ midi: x.midi, secs: Math.max(0.18, x.dur * tickSec) }));
+    void getPlayer().then((p) => p.previewSeq(seq, lh));
+    return;
+  }
+  const secs = Math.min(1.6, draft.dur * tickSec);
   void getPlayer().then((p) => p.previewWord(draft?.midi ?? null, lh, Math.max(0.3, secs)));
 }
 
@@ -460,7 +552,11 @@ function commitDraft(markDone = true) {
     setTimeout(() => (justDone = null), 50);
   }
   const w = cs.words[cur];
-  cs.words[cur] = { ...w, ...draft, done: markDone ? true : w.done || dirty };
+  const { slur, ...rest } = draft;
+  const nw = { ...w, ...rest, done: markDone ? true : w.done || dirty };
+  if (slur.length && rest.midi !== null) nw.slur = slur.map((x) => ({ ...x }));
+  else delete nw.slur;
+  cs.words[cur] = nw;
   dirty = false;
   persist();
 }
@@ -523,7 +619,7 @@ async function playLine(n: number) {
   if (!r) return;
   const starts = wordStarts(cs.words);
   const last = cs.words[r.last];
-  await play({ from: starts[r.first], to: starts[r.last] + last.dur + last.rest, line: n });
+  await play({ from: starts[r.first], to: starts[r.last] + wordLen(last), line: n });
 }
 
 async function play(range?: { from: number; to: number; line: number }) {
@@ -566,7 +662,7 @@ async function play(range?: { from: number; to: number; line: number }) {
     const rel = sec < 0 ? 0 : (sec * cs.tempo * TPB) / 60;
     const t = from + rel;
     ($('pfill') as HTMLElement).style.width = `${Math.min(100, (rel / total) * 100)}%`;
-    const wi = starts.findIndex((s, i) => t >= s && t < s + cs.words[i].dur + cs.words[i].rest);
+    const wi = starts.findIndex((s, i) => t >= s && t < s + wordLen(cs.words[i]));
     document.querySelectorAll('.w.playing').forEach((e) => e.classList.remove('playing'));
     if (wi >= 0) document.querySelector(`.w[data-i="${wi}"]`)?.classList.add('playing');
     requestAnimationFrame(tick);
@@ -661,6 +757,8 @@ function copyLine(src: number, dst: number, withChords: boolean) {
     d.midi = s.midi;
     d.dur = s.dur;
     d.rest = s.rest;
+    if (s.slur?.length) d.slur = s.slur.map((x) => ({ ...x }));
+    else delete d.slur;
     d.done = true;
     if (withChords) d.chord = s.chord ? { ...s.chord } : null;
     copied++;
@@ -735,6 +833,7 @@ function clearNotes(line: number) {
     w.done = false;
     w.midi = null;
     w.rest = 0;
+    delete w.slur;
   });
   persist();
   renderLines();
@@ -1207,12 +1306,14 @@ function bind() {
   $('edClear').onclick = () => {
     if (!draft) return;
     draft.midi = null;
+    draft.slur = [];
+    sub = 0;
     dirty = true;
     renderEditor();
     renderLines();
   };
-  $('octDown').onclick = () => draft && setDraftMidi((draft.midi ?? 60) - 12);
-  $('octUp').onclick = () => draft && setDraftMidi((draft.midi ?? 60) + 12);
+  $('octDown').onclick = () => draft && setDraftMidi((activeMidi() ?? 60) - 12);
+  $('octUp').onclick = () => draft && setDraftMidi((activeMidi() ?? 60) + 12);
   $('chordOk').onclick = () => {
     const c = parseChordName(($('chordInput') as HTMLInputElement).value);
     if (!c) return toast('Không hiểu tên hợp âm. Ví dụ: C, Am, F#m, Bb, G7, Bdim.');

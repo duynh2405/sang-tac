@@ -28,7 +28,7 @@ export function pack(cs: ComposeSong) {
     ka: cs.keyAuto ? 1 : 0,
     k: [cs.key.tonic, cs.key.mode],
     y: cs.lyricsText,
-    w: cs.words.map((w) => [w.text, w.midi ?? -1, w.dur, w.rest, w.chord?.root ?? -1, w.chord?.quality ?? '', w.br ? 1 : 0, w.done ? 1 : 0]),
+    w: cs.words.map((w) => [w.text, w.midi ?? -1, w.dur, w.rest, w.chord?.root ?? -1, w.chord?.quality ?? '', w.br ? 1 : 0, w.done ? 1 : 0, w.slur?.length ? w.slur.map((x) => [x.midi, x.dur]) : 0]),
   };
 }
 
@@ -43,6 +43,9 @@ export function unpack(o: any): ComposeSong {
     chord: num(a[4], -1) >= 0 ? { root: num(a[4], 0) % 12, quality: a[5] } : null,
     br: !!a[6],
     done: !!a[7],
+    ...(Array.isArray(a[8]) && a[8].length
+      ? { slur: a[8].slice(0, 2).map((x: any[]) => ({ midi: num(x[0], 60), dur: Math.max(1, num(x[1], 2)) })) }
+      : {}),
   }));
   return newCompose({
     title: String(o.t || 'Bài được gửi'),
