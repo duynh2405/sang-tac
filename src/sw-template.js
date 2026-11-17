@@ -30,7 +30,7 @@ self.addEventListener('fetch', (event) => {
   const url = new URL(req.url);
 
   // tiếng piano (tonejs.github.io): lấy từ cache trước, để dùng được khi mất mạng
-  if (url.hostname === 'tonejs.github.io') {
+  if (url.hostname === 'tonejs.github.io' || url.hostname === 'cdn.jsdelivr.net' || url.hostname === 'raw.githubusercontent.com') {
     event.respondWith(
       caches.open(SAMPLES).then((c) =>
         c.match(req).then(

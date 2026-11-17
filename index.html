@@ -60,6 +60,8 @@
         <p class="sub">Gõ lời, mỗi câu một dòng. Mỗi chữ sẽ thành một nút để bạn chọn nốt.</p>
         <textarea id="lyrics" rows="7" placeholder="Ví dụ:&#10;Chiều nay mưa bay trên phố&#10;Nhớ em ngày xưa bên hồ"></textarea>
         <div class="row">
+          <button id="rhymeFromLyrics" class="ghost rhyme-btn" title="Tra vần cho chữ đang chọn">🔎 Tra vần</button>
+          <span class="spacer"></span>
           <button id="lyricsCancel" class="ghost" hidden>Hủy</button>
           <button id="lyricsDone" class="primary big">Xong, chọn nốt →</button>
         </div>
@@ -70,6 +72,7 @@
         <div class="view-head">
           <div class="status" id="status"></div>
           <div class="view-actions">
+            <button id="rhymeFromSong" class="ghost small" title="Tra vần">🔎 Tra vần</button>
             <button id="btnSuggest" class="ghost small" title="Tự gợi ý hợp âm theo giai điệu">✨ Gợi ý hợp âm</button>
             <button id="btnEditLyrics" class="ghost small">✎ Sửa lời</button>
           </div>
@@ -98,6 +101,7 @@
           <span id="edIndex"></span>
           <b id="edWord"></b>
         </div>
+        <button id="edRhyme" class="icon" title="Tra vần chữ này" aria-label="Tra vần chữ này">🔎</button>
         <button id="edNext" class="icon" aria-label="Chữ sau">▶</button>
         <button id="edClose" class="icon" aria-label="Đóng">✕</button>
       </div>
@@ -143,6 +147,26 @@
       <button data-act="share" id="menuShare" hidden>📤 Chia sẻ MIDI</button>
       <div class="menu-foot">Sáng tác <span id="menuVersion"></span> · Made by <b>duyluma</b></div>
       <form method="dialog"><button class="ghost">Đóng</button></form>
+    </dialog>
+
+    <dialog id="rhymeDialog" class="rhyme-dialog">
+      <div class="rh-head">
+        <b>🔎 Tra vần</b>
+        <form method="dialog"><button class="icon" aria-label="Đóng">✕</button></form>
+      </div>
+      <div class="rh-search">
+        <input id="rhymeInput" placeholder="Gõ một chữ, ví dụ: mưa" enterkeyhint="search" autocomplete="off" />
+        <button id="rhymeGo" class="primary">Tra</button>
+      </div>
+      <div class="rh-mode">
+        <div class="seg" id="rhymeMode">
+          <button data-v="same" class="on">Cùng thanh</button>
+          <button data-v="all">Mọi thanh</button>
+        </div>
+        <span id="rhymeInfo" class="rh-info"></span>
+      </div>
+      <div id="rhymeBody" class="rh-body"></div>
+      <p class="rh-foot">Bấm vào chữ để chèn vào lời. Chữ mờ là chữ ít dùng. Dữ liệu: từ điển Viet74K (GPL-2.0).</p>
     </dialog>
 
     <dialog id="songsDialog">

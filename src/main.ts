@@ -553,6 +553,145 @@ async function openSheet() {
   }
 }
 
+// ---------- tra vần ----------
+type RhymeMod = typeof import('./lyrics/rhyme');
+let rhymeMod: RhymeMod | null = null;
+let rhymeIdx: import('./lyrics/rhyme').RhymeIndex | null = null;
+let rhymeSameTone = true;
+let lyricsCaret: { start: number; end: number } | null = null;
+
+/** Chữ ngay trước con trỏ (hoặc chữ đang bôi đen) trong ô lời. */
+function wordAtCaret(): string {
+  const ta = $('lyrics') as HTMLTextAreaElement;
+  const { selectionStart: a, selectionEnd: b, value } = ta;
+  if (b > a) return value.slice(a, b).trim().split(/\s+/).pop() ?? '';
+  const before = value.slice(0, a).match(/([\p{L}]+)[^\p{L}]*$/u);
+  return before ? before[1] : '';
+}
+
+async function openRhyme(word: string) {
+  const dlg = $('rhymeDialog') as HTMLDialogElement;
+  const inp = $('rhymeInput') as HTMLInputElement;
+  inp.value = word;
+  if (!dlg.open) dlg.showModal();
+  if (!word) {
+    $('rhymeInfo').textContent = '';
+    $('rhymeBody').innerHTML = '<p class="rh-empty">Gõ một chữ để xem các chữ cùng vần.</p>';
+    inp.focus();
+    return;
+  }
+  await showRhymes(word);
+}
+
+async function showRhymes(word: string) {
+  const body = $('rhymeBody');
+  if (!rhymeIdx) {
+    body.innerHTML = '<p class="rh-empty">Đang tải từ điển vần (khoảng 1 MB, chỉ lần đầu)…</p>';
+    try {
+      rhymeMod ??= await import('./lyrics/rhyme');
+      rhymeIdx = await rhymeMod.loadRhymeIndex();
+    } catch {
+      body.innerHTML = '<p class="rh-empty">Không tải được từ điển. Kiểm tra kết nối mạng rồi thử lại.</p>';
+      return;
+    }
+  }
+  const R = rhymeMod!;
+  const res = R.findRhymes(rhymeIdx, word, rhymeSameTone);
+  body.innerHTML = '';
+  if (!res) {
+    $('rhymeInfo').textContent = '';
+    body.innerHTML = '<p class="rh-empty">Không nhận ra chữ này. Hãy gõ một chữ tiếng Việt, ví dụ: mưa, người, tình.</p>';
+    return;
+  }
+  const q = res.query;
+  $('rhymeInfo').innerHTML = `Vần <b>-${q.rime}</b> · ${R.TONE_NAME[q.tone].toLowerCase()} (${R.isBang(q.tone) ? 'thanh bằng' : 'thanh trắc'})`;
+
+  const chip = (text: string, rare = false) => {
+    const b = document.createElement('button');
+    b.textContent = text;
+    if (rare) b.className = 'rare';
+    b.onclick = () => useRhymeWord(text);
+    return b;
+  };
+  const chipsBox = (items: string[], limit: number, rareOf?: (t: string) => boolean) => {
+    const box = document.createElement('div');
+    box.className = 'rh-chips';
+    const render = (n: number) => {
+      box.innerHTML = '';
+      items.slice(0, n).forEach((t) => box.append(chip(t, rareOf?.(t))));
+      if (items.length > n) {
+        const more = document.createElement('button');
+        more.className = 'more';
+        more.textContent = `+${items.length - n} nữa`;
+        more.onclick = () => render(n + limit * 3);
+        box.append(more);
+      }
+    };
+    render(limit);
+    return box;
+  };
+  const section = (title: string, sub: string) => {
+    const sec = document.createElement('div');
+    sec.className = 'rh-sec';
+    const h = document.createElement('h4');
+    h.textContent = title;
+    if (sub) {
+      const sm = document.createElement('small');
+      sm.textContent = sub;
+      h.append(sm);
+    }
+    sec.append(h);
+    body.append(sec);
+    return sec;
+  };
+  const rare = (t: string) => (rhymeIdx!.freq.get(t) ?? 0) <= R.RARE;
+
+  const total = res.sameRime.reduce((n, g) => n + g.syllables.length, 0);
+  const s1 = section(`Cùng vần -${q.rime}`, `${total} chữ`);
+  if (!total) s1.append(Object.assign(document.createElement('p'), { className: 'rh-empty', textContent: 'Không có chữ nào khác cùng vần.' }));
+  for (const g of res.sameRime) {
+    const row = document.createElement('div');
+    row.className = 'rh-group';
+    row.append(Object.assign(document.createElement('span'), { textContent: R.TONE_NAME[g.tone] }), chipsBox(g.syllables, 30, rare));
+    s1.append(row);
+  }
+  if (res.words.length) section('Từ gợi ý ý tưởng', `${res.words.length} từ kết thúc bằng vần này`).append(chipsBox(res.words, 40));
+  if (res.near.length) {
+    const s3 = section('Vần gần', 'nghe gần giống, dùng khi cần linh hoạt');
+    for (const g of res.near) {
+      const row = document.createElement('div');
+      row.className = 'rh-group';
+      row.append(Object.assign(document.createElement('span'), { textContent: '-' + g.rime }), chipsBox(g.syllables, 12, rare));
+      s3.append(row);
+    }
+  }
+  body.scrollTop = 0;
+}
+
+function useRhymeWord(text: string) {
+  const editing = !$('lyricsEdit').hidden;
+  if (editing && lyricsCaret) {
+    const ta = $('lyrics') as HTMLTextAreaElement;
+    const v = ta.value;
+    const before = v.slice(0, lyricsCaret.start);
+    const after = v.slice(lyricsCaret.end);
+    const pre = before && !/\s$/.test(before) ? ' ' : '';
+    const post = after && !/^\s/.test(after) ? ' ' : '';
+    ta.value = before + pre + text + post + after;
+    const pos = before.length + pre.length + text.length + post.length;
+    lyricsCaret = { start: pos, end: pos };
+    ta.setSelectionRange(pos, pos);
+    cs.lyricsText = ta.value;
+    persist();
+    toast(`Đã chèn «${text}» vào lời`);
+    return;
+  }
+  navigator.clipboard?.writeText(text).then(
+    () => toast(`Đã chép «${text}». Dán vào lời khi sửa lời.`),
+    () => toast(text),
+  );
+}
+
 // ---------- danh sách bài ----------
 function openSongs() {
   const ul = $('songsList');
@@ -670,6 +809,35 @@ function bind() {
     persist();
     toast('Đã gợi ý hợp âm. Bấm vào chữ để đổi nếu muốn.');
   };
+
+  // tra vần
+  $('rhymeFromLyrics').onclick = () => {
+    const ta = $('lyrics') as HTMLTextAreaElement;
+    lyricsCaret = { start: ta.selectionStart, end: ta.selectionEnd };
+    // đang bôi đen một chữ: chèn chữ gợi ý sẽ thay chữ đó; còn không thì chèn tại con trỏ
+    if (lyricsCaret.end === lyricsCaret.start) lyricsCaret = { start: ta.selectionStart, end: ta.selectionStart };
+    void openRhyme(wordAtCaret());
+  };
+  $('rhymeFromSong').onclick = () => {
+    const last = cs.words.length ? cs.words[cs.words.length - 1].text : '';
+    void openRhyme(last);
+  };
+  $('edRhyme').onclick = () => cur !== null && void openRhyme(cs.words[cur].text);
+  $('rhymeGo').onclick = () => void showRhymes(($('rhymeInput') as HTMLInputElement).value);
+  ($('rhymeInput') as HTMLInputElement).addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      void showRhymes((e.target as HTMLInputElement).value);
+    }
+  });
+  document.querySelectorAll<HTMLButtonElement>('#rhymeMode button').forEach((b) => {
+    b.onclick = () => {
+      rhymeSameTone = b.dataset.v === 'same';
+      document.querySelectorAll('#rhymeMode button').forEach((x) => x.classList.toggle('on', x === b));
+      const v = ($('rhymeInput') as HTMLInputElement).value;
+      if (v.trim()) void showRhymes(v);
+    };
+  });
 
   // bảng chọn nốt
   $('edOk').onclick = okNext;
