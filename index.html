@@ -103,7 +103,14 @@
         <button id="edPrev" class="icon" aria-label="Chữ trước">◀</button>
         <div class="ed-word">
           <span id="edIndex"></span>
-          <b id="edWord"></b>
+          <button id="edWordBtn" class="ed-word-btn" title="Sửa chữ này" aria-label="Sửa chữ này">
+            <b id="edWord"></b><span class="pen" aria-hidden="true">✎</span>
+          </button>
+          <form id="edWordForm" class="ed-word-form" hidden>
+            <input id="edWordInput" autocomplete="off" autocapitalize="off" enterkeyhint="done" aria-label="Sửa chữ" />
+            <button type="submit" class="primary" aria-label="Lưu chữ">✓</button>
+            <button type="button" id="edWordCancel" class="ghost" aria-label="Hủy sửa">✕</button>
+          </form>
         </div>
         <button id="edRhyme" class="icon" title="Tra vần chữ này" aria-label="Tra vần chữ này">🔎</button>
         <button id="edNext" class="icon" aria-label="Chữ sau">▶</button>

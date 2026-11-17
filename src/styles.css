@@ -1459,6 +1459,52 @@ button.play.on {
   border-radius: 14px;
 }
 
+.ed-word-btn {
+  justify-self: center;
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
+  min-height: 36px;
+  padding: 2px 12px;
+  border: 1px dashed transparent;
+  background: transparent;
+  border-radius: 10px;
+}
+.ed-word-btn:hover,
+.ed-word-btn:focus-visible {
+  border-color: var(--line);
+  background: var(--card-2);
+}
+.ed-word-btn b {
+  font-family: var(--lyric);
+  font-weight: 600;
+  font-size: 22px;
+}
+.ed-word-btn .pen {
+  font-size: 14px;
+  color: var(--brand-ink);
+  opacity: 0.8;
+}
+.ed-word-form {
+  display: flex;
+  gap: 4px;
+  justify-content: center;
+  align-items: center;
+  margin-top: 2px;
+}
+.ed-word-form input {
+  width: min(180px, 40vw);
+  font-family: var(--lyric);
+  font-size: 19px;
+  text-align: center;
+  min-height: 38px;
+}
+.ed-word-form button {
+  min-height: 38px;
+  width: 38px;
+  padding: 0;
+}
+
 /* luyến: nhiều nốt trên một chữ */
 .slur-row {
   align-items: center;

@@ -3,7 +3,7 @@ import { TPB } from './model';
 import { chordName, chordPcs, diatonicChords, keyName, midiName, parseChordName, solfegeName, mod12 } from './music/theory';
 import { songToMusicXml } from './music/musicxml';
 import { songToMidi } from './music/midi';
-import { checkTones } from './lyrics/vietnamese';
+import { checkTones, splitSyllables } from './lyrics/vietnamese';
 import {
   defaultDur,
   defaultMidi,
@@ -334,6 +334,7 @@ function effectiveChord(index: number): WordChord | null {
 
 function openEditor(i: number) {
   if (cur !== null && dirty) commitDraft(false);
+  endWordEdit();
   stopPlay();
   cur = i;
   const w = cs.words[i];
@@ -525,6 +526,97 @@ function renderSlurTabs() {
     };
     box.append(add);
   }
+}
+
+// ---------- sửa chữ ngay trong bảng chọn nốt ----------
+function startWordEdit() {
+  if (cur === null) return;
+  const inp = $('edWordInput') as HTMLInputElement;
+  inp.value = cs.words[cur].text;
+  $('edWordBtn').hidden = true;
+  $('edWordForm').hidden = false;
+  inp.focus();
+  inp.select();
+}
+
+function endWordEdit() {
+  $('edWordBtn').hidden = false;
+  $('edWordForm').hidden = true;
+}
+
+/** Viết lại lời từ danh sách chữ, giữ các dòng trống (ngắt đoạn) như cũ. */
+function rebuildLyrics(blankAfter: Map<number, number>) {
+  let out = '';
+  cs.words.forEach((w, i) => {
+    out += w.text;
+    if (w.br) out += '\n' + '\n'.repeat(blankAfter.get(i) ?? 0);
+    else if (i < cs.words.length - 1) out += ' ';
+  });
+  cs.lyricsText = out;
+}
+
+/** Vị trí các dòng trống trong lời hiện tại: chữ cuối dòng -> số dòng trống theo sau. */
+function blankLinesMap(): Map<number, number> {
+  const m = new Map<number, number>();
+  let count = 0;
+  let lastWord = -1;
+  for (const line of cs.lyricsText.split(/\r?\n/)) {
+    const n = splitSyllables(line).length;
+    if (n === 0) {
+      if (lastWord >= 0) m.set(lastWord, (m.get(lastWord) ?? 0) + 1);
+    } else {
+      count += n;
+      lastWord = count - 1;
+    }
+  }
+  return m;
+}
+
+function applyWordEdit(value: string) {
+  if (cur === null) return;
+  const i = cur;
+  const old = cs.words[i];
+  const toks = splitSyllables(value);
+  if (toks.length === 1 && toks[0] === old.text) return endWordEdit();
+  if (!toks.length && cs.words.length === 1) return toast('Bài phải còn ít nhất một chữ.');
+  if (!toks.length && !confirm(`Xóa chữ «${old.text}» khỏi lời? (có thể bấm ↶ để hoàn tác)`)) return;
+  if (dirty) commitDraft(false);
+  const blanks = blankLinesMap();
+  snapshot();
+  // dời vị trí dòng trống theo số chữ thêm (d > 0) hoặc bớt (d = -1) tại chữ i
+  const shift = (d: number) => {
+    const m = new Map<number, number>();
+    blanks.forEach((v, k) => m.set(k >= i ? Math.max(0, k + d) : k, v));
+    return m;
+  };
+  if (!toks.length) {
+    // xóa chữ: chuyển xuống dòng và hợp âm sang chữ bên cạnh
+    const prev = cs.words[i - 1];
+    const next = cs.words[i + 1];
+    if (old.br && prev) prev.br = true;
+    if (old.chord && next && !next.chord) next.chord = old.chord;
+    cs.words.splice(i, 1);
+    rebuildLyrics(shift(-1));
+    persist();
+    endWordEdit();
+    toast(`Đã xóa chữ «${old.text}».`);
+    if (!cs.words.length) return closeEditor(false);
+    const ni = Math.min(i, cs.words.length - 1);
+    cur = null;
+    openEditor(ni);
+    return;
+  }
+  const extra = toks.slice(1).map((t) => ({ text: t, midi: null, dur: TPB, rest: 0, chord: null, br: false, done: false }));
+  cs.words[i] = { ...old, text: toks[0], br: extra.length ? false : old.br };
+  if (extra.length) extra[extra.length - 1].br = old.br;
+  cs.words.splice(i + 1, 0, ...extra);
+  rebuildLyrics(shift(extra.length));
+  persist();
+  endWordEdit();
+  if (draft) dirty = false;
+  renderEditor();
+  renderLines();
+  if (extra.length) toast(`Đã thêm ${extra.length} chữ mới sau «${toks[0]}». Chọn nốt cho chúng bằng nút ▶.`, 4500);
 }
 
 function setDraftChord(c: WordChord | null) {
@@ -1304,6 +1396,20 @@ function bind() {
     toast('Đã xóa hợp âm.');
   };
   ($('chordQuick') as HTMLDialogElement).addEventListener('close', () => (quickTarget = null));
+
+  // sửa chữ trong bảng chọn nốt
+  $('edWordBtn').onclick = startWordEdit;
+  $('edWordCancel').onclick = endWordEdit;
+  $('edWordForm').addEventListener('submit', (e) => {
+    e.preventDefault();
+    applyWordEdit(($('edWordInput') as HTMLInputElement).value);
+  });
+  $('edWordInput').addEventListener('keydown', (e) => {
+    if ((e as KeyboardEvent).key === 'Escape') {
+      e.stopPropagation();
+      endWordEdit();
+    }
+  });
 
   // tra vần
   $('rhymeFromLyrics').onclick = () => {
