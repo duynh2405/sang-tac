@@ -1,6 +1,6 @@
 {
   "name": "hat-ra-nhac",
-  "version": "2.5.0",
+  "version": "3.0.0",
   "private": true,
   "description": "Hát ra nhạc: hát vài câu, app tạo giai điệu, hợp âm piano tay trái, sheet nhạc kèm lời tiếng Việt. Miễn phí, chạy hoàn toàn trên trình duyệt.",
   "type": "module",
@@ -13,6 +13,8 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@fontsource/be-vietnam-pro": "^5.3.0",
+    "@fontsource/lora": "^5.3.0",
     "opensheetmusicdisplay": "^2.3.1",
     "tone": "^15.1.22"
   },

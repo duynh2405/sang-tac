@@ -20,6 +20,7 @@ import {
 } from './compose';
 import { listSongs, saveSong, deleteSong } from './storage';
 import { APP_VERSION, setupInstall, setupUpdates } from './pwa';
+import './fonts';
 import { decodeSong, pack, sharedCodeInUrl, shareLink, unpack } from './share';
 
 const $ = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id) as T;
@@ -133,6 +134,29 @@ function renderLines() {
   cs.words.forEach((w, i) => w.midi !== null && noteWord.push(i));
   const warnWords = new Set(checkTones(song.notes).map((w) => noteWord[w.noteIndex]));
 
+  // đường nét giai điệu: khoảng cao độ của từng câu
+  const lineOfW: number[] = [];
+  const span: { lo: number; hi: number }[] = [];
+  lineRanges().forEach((r, n) => {
+    let lo = 127;
+    let hi = 0;
+    for (let i = r.first; i <= r.last; i++) {
+      lineOfW[i] = n;
+      const w = i === cur && draft ? { ...cs.words[i], ...draft, done: true } : cs.words[i];
+      if (w.midi !== null && (w.done || i === cur)) {
+        lo = Math.min(lo, w.midi);
+        hi = Math.max(hi, w.midi);
+      }
+    }
+    // tối thiểu một quãng 7 để giai điệu ít biến động không bị phóng đại
+    if (hi - lo < 7) {
+      const mid = (hi + lo) / 2;
+      lo = mid - 3.5;
+      hi = mid + 3.5;
+    }
+    span[n] = { lo, hi };
+  });
+
   let lineNo = 0;
   const newLine = () => {
     const l = document.createElement('div');
@@ -185,7 +209,18 @@ function renderLines() {
         : w.done
           ? `lặng · ${beatsLabel(shown.dur)}`
           : '';
-    b.append(ch, tx, nt);
+    const pc = document.createElement('span');
+    pc.className = 'pc';
+    if (shown.midi !== null && (w.done || i === cur)) {
+      const sp = span[lineOfW[i]];
+      const pd = document.createElement('i');
+      pd.className = 'pd';
+      pd.style.setProperty('--y', String(1 - (shown.midi - sp.lo) / (sp.hi - sp.lo)));
+      pd.style.setProperty('--len', String(Math.min(1, shown.dur / 16)));
+      pc.append(pd);
+    }
+    if (i === justDone) b.classList.add('just');
+    b.append(ch, pc, tx, nt);
     b.onclick = () => openEditor(i);
     line.append(b);
     if (w.br) {
@@ -214,8 +249,11 @@ function renderAll() {
 function toast(msg: string, ms = 3000) {
   const t = $('toast');
   t.textContent = msg;
+  t.classList.remove('out');
   t.hidden = false;
   clearTimeout((toast as any)._t);
+  clearTimeout((toast as any)._o);
+  (toast as any)._o = setTimeout(() => t.classList.add('out'), ms - 260);
   (toast as any)._t = setTimeout(() => (t.hidden = true), ms);
 }
 
@@ -236,7 +274,10 @@ function buildKeyboard() {
       k.textContent = m % 12 === 0 ? `Đô${Math.floor(m / 12) - 1}` : '';
       whiteIndex++;
     }
-    k.onclick = () => setDraftMidi(m);
+    k.onclick = () => {
+      navigator.vibrate?.(8);
+      setDraftMidi(m);
+    };
     kb.append(k);
   }
   kb.style.width = `${whiteIndex * 40}px`;
@@ -409,9 +450,15 @@ function preview() {
   void getPlayer().then((p) => p.previewWord(draft?.midi ?? null, lh, Math.max(0.3, secs)));
 }
 
+let justDone: number | null = null;
+
 function commitDraft(markDone = true) {
   if (cur === null || !draft) return;
   snapshot();
+  if (markDone) {
+    justDone = cur;
+    setTimeout(() => (justDone = null), 50);
+  }
   const w = cs.words[cur];
   cs.words[cur] = { ...w, ...draft, done: markDone ? true : w.done || dirty };
   dirty = false;
