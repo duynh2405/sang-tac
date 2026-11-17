@@ -9,9 +9,22 @@ import { transcribe } from './lyrics/asr';
 import { startRecording, decodeFile, encodeWav, type RecordSession } from './audio/recorder';
 import { transcribeMelody } from './pipeline';
 import { PianoRoll } from './ui/pianoroll';
-import { renderSheet } from './ui/sheet';
-import * as player from './ui/player';
 import { listSongs, saveSong, deleteSong, saveAudio, loadAudio } from './storage';
+import { APP_VERSION, setupInstall, setupUpdates } from './pwa';
+
+// Tải chậm phần nặng (tiếng piano, vẽ sheet) để mở app nhanh hơn
+type PlayerMod = typeof import('./ui/player');
+let playerMod: PlayerMod | null = null;
+async function getPlayer(): Promise<PlayerMod> {
+  if (!playerMod) playerMod = await import('./ui/player');
+  return playerMod;
+}
+const player = {
+  previewNote: (m: number) => void getPlayer().then((p) => p.previewNote(m)),
+  stop: () => playerMod?.stop(),
+  stopVoice: () => playerMod?.stopVoice(),
+  position: () => (playerMod ? playerMod.position() : -1),
+};
 
 const $ = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id) as T;
 
@@ -98,6 +111,9 @@ function render() {
   ($('title') as HTMLInputElement).value = song.title;
   ($('tempo') as HTMLInputElement).value = String(song.tempo);
   ($('meter') as HTMLSelectElement).value = String(song.beatsPerMeasure);
+  document.querySelectorAll<HTMLButtonElement>('#meterSeg button').forEach((b) =>
+    b.classList.toggle('on', Number(b.dataset.v) === song.beatsPerMeasure),
+  );
   ($('lh') as HTMLSelectElement).value = song.lhPattern;
   ($('cpm') as HTMLSelectElement).value = String(song.chordsPerMeasure);
   renderKeySelect();
@@ -171,6 +187,7 @@ function scheduleSheet() {
       return;
     }
     try {
+      const { renderSheet } = await import('./ui/sheet');
       if (el.querySelector('p.hint')) el.innerHTML = '';
       await renderSheet(el, songToMusicXml(song, song.chords));
     } catch (e) {
@@ -218,10 +235,13 @@ async function toggleRecord() {
     const s = recSession;
     recSession = null;
     btn.classList.remove('on');
+    $('dockRec').classList.remove('on');
     $('recLabel').textContent = 'Bấm để thu';
     renderBeats(null);
     ($('level') as HTMLElement).style.width = '0';
     const rec = await s.stop();
+    // tắt gõ nhịp: căn nhịp theo nốt hát đầu tiên
+    if (clickMode() === 'off') rec.t0 = NaN;
     if (rec.samples.length < rec.sampleRate * 0.5) {
       toast('Bản thu quá ngắn, hãy hát lâu hơn một chút.');
       return;
@@ -232,15 +252,17 @@ async function toggleRecord() {
   player.stop();
   readSettings();
   try {
+    const mode = clickMode();
     const s = await startRecording({
       tempo: song.tempo,
       beatsPerMeasure: song.beatsPerMeasure,
-      countInMeasures: 1,
-      metronomeDuringTake: ($('clickDuring') as HTMLInputElement).checked,
+      countInMeasures: mode === 'off' ? 0 : 1,
+      metronomeDuringTake: mode === 'always',
     });
     recSession = s;
     btn.classList.add('on');
-    $('recLabel').textContent = 'Đang đếm nhịp…';
+    $('dockRec').classList.add('on');
+    $('recLabel').textContent = mode === 'off' ? 'Đang thu – bấm để dừng' : 'Đang đếm nhịp…';
     s.onTick = (b) => {
       renderBeats(b);
       $('recLabel').textContent = b < 0 ? `Chuẩn bị… ${-b}` : 'Đang thu – bấm để dừng';
@@ -292,6 +314,21 @@ async function analyze(rec: Parameters<typeof transcribeMelody>[0]) {
   }
 }
 
+type ClickMode = 'countin' | 'always' | 'off';
+function clickMode(): ClickMode {
+  return ($('clickMode') as HTMLSelectElement).value as ClickMode;
+}
+
+function updateRecHint() {
+  const m = clickMode();
+  $('recHint').textContent =
+    m === 'off'
+      ? 'Không gõ nhịp: cứ hát tự nhiên, app căn nhịp theo nốt đầu tiên và tốc độ bạn chọn.'
+      : m === 'always'
+        ? 'App đếm vào 1 ô nhịp rồi gõ nhịp suốt khi bạn hát. Nên đeo tai nghe để tiếng gõ không lọt vào micro.'
+        : 'App đếm vào 1 ô nhịp rồi im lặng để bạn hát. Hát đúng tốc độ của tiếng đếm để nhịp chính xác nhất.';
+}
+
 function readSettings() {
   const tempo = Math.max(40, Math.min(200, Number(($('tempo') as HTMLInputElement).value) || 80));
   song.tempo = tempo;
@@ -313,12 +350,21 @@ function animate() {
   requestAnimationFrame(animate);
 }
 
+function setPlayingUi(on: boolean) {
+  $('btnPlay').classList.toggle('playing', on);
+  $('btnPlay').textContent = on ? '❚❚' : '▶';
+  ($('dockPlay').querySelector('.ico') as HTMLElement).textContent = on ? '■' : '▶';
+}
+
 async function playSong() {
+  if (!song.notes.length) return toast('Chưa có nốt nào. Hãy hát trước.');
   player.stopVoice();
   playing = true;
+  setPlayingUi(true);
   ($('btnPlay') as HTMLButtonElement).disabled = true;
   try {
-    await player.play(song, song.chords, {
+    const p = await getPlayer();
+    await p.play(song, song.chords, {
       melody: ($('playMelody') as HTMLInputElement).checked,
       accompaniment: ($('playAcc') as HTMLInputElement).checked,
       onEnd: stopAll,
@@ -334,6 +380,7 @@ async function playSong() {
 
 function stopAll() {
   playing = false;
+  setPlayingUi(false);
   player.stop();
   player.stopVoice();
   roll.setPlayhead(-1);
@@ -684,12 +731,49 @@ function bind() {
     roll.grid = grid();
     roll.draw();
   };
-  $('btnPlay').onclick = playSong;
+  $('btnPlay').onclick = () => (playing ? stopAll() : playSong());
+  $('dockPlay').onclick = () => (playing ? stopAll() : playSong());
+  $('dockRec').onclick = () => {
+    $('recordCard').scrollIntoView({ block: 'start' });
+    void toggleRecord();
+  };
+  $('dockEdit').onclick = () => $('editCard').scrollIntoView({ block: 'start' });
+  $('dockSheet').onclick = () => $('sheetCard').scrollIntoView({ block: 'start' });
+  const bumpTempo = (d: number) => {
+    const inp = $('tempo') as HTMLInputElement;
+    inp.value = String(Math.max(40, Math.min(200, (Number(inp.value) || 80) + d)));
+    readSettings();
+    commit({ rederive: false });
+  };
+  $('tempoDown').onclick = () => bumpTempo(-5);
+  $('tempoUp').onclick = () => bumpTempo(5);
+  document.querySelectorAll<HTMLButtonElement>('#meterSeg button').forEach((b) => {
+    b.onclick = () => {
+      ($('meter') as HTMLSelectElement).value = b.dataset.v!;
+      $('meter').dispatchEvent(new Event('change'));
+    };
+  });
+  const cm = $('clickMode') as HTMLSelectElement;
+  try {
+    const saved = localStorage.getItem('hrn.clickMode');
+    if (saved) cm.value = saved;
+  } catch {
+    /* bỏ qua */
+  }
+  cm.onchange = () => {
+    try {
+      localStorage.setItem('hrn.clickMode', cm.value);
+    } catch {
+      /* bỏ qua */
+    }
+    updateRecHint();
+  };
+  updateRecHint();
   $('btnStop').onclick = stopAll;
   $('btnVoice').onclick = async () => {
     if (!audio16k) return;
     stopAll();
-    await player.playVoice(audio16k);
+    await (await getPlayer()).playVoice(audio16k);
   };
   $('btnAssign').onclick = assignFromTextarea;
   $('btnAsr').onclick = recognizeLyrics;
@@ -716,6 +800,24 @@ function bind() {
 }
 
 bind();
+$('appVersion').textContent = `v${APP_VERSION}`;
+$('footVersion').textContent = `v${APP_VERSION}`;
+setupInstall(
+  [$('btnInstall')],
+  () => ($('iosDialog') as HTMLDialogElement).showModal(),
+  () => toast('Đã cài Hát ra nhạc ra màn hình chính 🎉'),
+);
+setupUpdates({
+  canReloadNow: () => !recSession,
+  beforeReload: () => {
+    try {
+      song.updated = Date.now();
+      saveSong(song);
+    } catch {
+      /* bỏ qua */
+    }
+  },
+});
 roll.grid = grid();
 derive();
 render();

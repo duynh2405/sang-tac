@@ -17,6 +17,13 @@ Miễn phí, mã nguồn mở, chạy hoàn toàn trên trình duyệt: giọng 
 
 Bài hát được lưu ngay trên trình duyệt của bạn.
 
+- **Cài như app**: bấm "Cài app" để đưa ra màn hình chính (Android, máy tính); iPhone dùng Safari → Chia sẻ → Thêm vào MH chính.
+- **Tự cập nhật**: khi có phiên bản mới, app hiện thông báo và tự cập nhật ngay (chờ bạn thu âm xong nếu đang thu).
+- **Gõ nhịp tùy chọn**: chỉ đếm vào, gõ suốt khi hát, hoặc tắt hẳn.
+- Giao diện sáng/tối theo máy, tối ưu cho điện thoại.
+
+Made by **duyluma**.
+
 ## Chạy trên máy
 
 ```bash
@@ -37,7 +44,7 @@ npm run build    # bản build tĩnh trong thư mục dist/
 ## Kế hoạch
 
 - [ ] Bản Android (AAB) đóng gói bằng Capacitor
-- [ ] Cài như app (PWA), dùng offline
+- [x] Cài như app (PWA), dùng offline, tự cập nhật
 
 ## Giấy phép
 

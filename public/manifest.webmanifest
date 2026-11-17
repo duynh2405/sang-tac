@@ -1,0 +1,19 @@
+{
+  "name": "Hát ra nhạc – hát vài câu, ra sheet piano",
+  "short_name": "Hát ra nhạc",
+  "description": "Hát vài câu, app tự tạo giai điệu, hợp âm piano và sheet nhạc kèm lời tiếng Việt.",
+  "lang": "vi",
+  "id": "./",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#0f1020",
+  "theme_color": "#4f46e5",
+  "categories": ["music", "education", "productivity"],
+  "icons": [
+    { "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "icons/maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}
