@@ -45,6 +45,9 @@ const activeDur = () => (!draft ? 0 : sub > 0 ? (draft.slur[sub - 1]?.dur ?? 0) 
 let dirty = false;
 let playing = false;
 let playingLine: number | null = null; // câu đang phát (null = cả bài)
+let playingFrom: number | null = null; // đang phát từ câu này đến hết bài
+const ICON_FROM = '<svg viewBox="0 0 22 14" width="20" height="13" aria-hidden="true"><path d="M1 1.5v11l8.5-5.5z" fill="currentColor"/><path d="M16 1.5v9.5M12.6 7.8 16 11.4l3.4-3.6" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+const ICON_STOP = '<svg viewBox="0 0 22 14" width="20" height="13" aria-hidden="true"><rect x="6" y="2" width="10" height="10" rx="1.5" fill="currentColor"/></svg>';
 const undoStack: string[] = [];
 
 const DURS: [number, string, string][] = [
@@ -178,6 +181,12 @@ function renderLines() {
     pb.setAttribute('aria-label', `Nghe câu ${n + 1}`);
     pb.textContent = n === playingLine ? '■' : '▶';
     pb.onclick = () => (playingLine === n ? stopPlay() : void playLine(n));
+    const fb = document.createElement('button');
+    fb.className = 'lf' + (playingFrom === n ? ' on' : '');
+    fb.title = n === playingFrom ? 'Dừng' : `Nghe từ câu ${n + 1} đến hết bài`;
+    fb.setAttribute('aria-label', fb.title);
+    fb.innerHTML = playingFrom === n ? ICON_STOP : ICON_FROM;
+    fb.onclick = () => (playingFrom === n ? stopPlay() : void playFrom(n));
     const mb = document.createElement('button');
     mb.className = 'lm';
     mb.textContent = '⋯';
@@ -186,7 +195,7 @@ function renderLines() {
     mb.onclick = () => openLineMenu(n);
     const ctl = document.createElement('div');
     ctl.className = 'lctl';
-    ctl.append(pb, mb);
+    ctl.append(fb, pb, mb);
     l.append(ctl);
     return l;
   };
@@ -622,7 +631,14 @@ async function playLine(n: number) {
   await play({ from: starts[r.first], to: starts[r.last] + wordLen(last), line: n });
 }
 
-async function play(range?: { from: number; to: number; line: number }) {
+/** Nghe từ đầu câu n đến hết bài. */
+async function playFrom(n: number) {
+  const r = lineRanges()[n];
+  if (!r) return;
+  await play({ from: wordStarts(cs.words)[r.first], to: Infinity, fromLine: n });
+}
+
+async function play(range?: { from: number; to: number; line?: number; fromLine?: number }) {
   // đang mở bảng chọn nốt mà nghe câu: lưu thay đổi nhưng giữ bảng mở
   if (cur !== null) {
     if (range) {
@@ -634,7 +650,14 @@ async function play(range?: { from: number; to: number; line: number }) {
   const from = range?.from ?? 0;
   const to = range?.to ?? Infinity;
   const hasNotes = song.notes.some((n) => n.start >= from && n.start < to);
-  if (!hasNotes) return toast(range ? 'Câu này chưa có nốt nào.' : 'Chưa có nốt nào. Bấm vào một chữ để bắt đầu.');
+  if (!hasNotes)
+    return toast(
+      range?.line !== undefined
+        ? 'Câu này chưa có nốt nào.'
+        : range
+          ? 'Từ câu này trở đi chưa có nốt nào.'
+          : 'Chưa có nốt nào. Bấm vào một chữ để bắt đầu.',
+    );
   // cắt hợp âm theo đoạn được phát để tay trái vào đúng từ đầu câu
   const chords = allChords
     .filter((c) => c.start < to && c.start + c.dur > from)
@@ -643,7 +666,8 @@ async function play(range?: { from: number; to: number; line: number }) {
       return { ...c, start: s, dur: Math.min(c.start + c.dur, to) - s };
     });
   playing = true;
-  playingLine = range ? range.line : null;
+  playingLine = range?.line ?? null;
+  playingFrom = range?.fromLine ?? null;
   setPlayUi(true);
   renderLines();
   const p = await getPlayer();
@@ -651,11 +675,12 @@ async function play(range?: { from: number; to: number; line: number }) {
     melody: true,
     accompaniment: ($('playAcc') as HTMLInputElement).checked,
     fromTick: from,
-    toTick: range ? to : undefined,
+    toTick: range && isFinite(to) ? to : undefined,
     onEnd: stopPlay,
   });
   const starts = wordStarts(cs.words);
-  const total = Math.max(1, (range ? to : totalTicks(cs.words)) - from);
+  const total = Math.max(1, (isFinite(to) ? to : totalTicks(cs.words)) - from);
+  let lastWi = -1;
   const tick = () => {
     if (!playing) return;
     const sec = p.position();
@@ -663,17 +688,34 @@ async function play(range?: { from: number; to: number; line: number }) {
     const t = from + rel;
     ($('pfill') as HTMLElement).style.width = `${Math.min(100, (rel / total) * 100)}%`;
     const wi = starts.findIndex((s, i) => t >= s && t < s + wordLen(cs.words[i]));
-    document.querySelectorAll('.w.playing').forEach((e) => e.classList.remove('playing'));
-    if (wi >= 0) document.querySelector(`.w[data-i="${wi}"]`)?.classList.add('playing');
+    if (wi !== lastWi) {
+      lastWi = wi;
+      document.querySelectorAll('.w.playing').forEach((e) => e.classList.remove('playing'));
+      const el = wi >= 0 ? document.querySelector<HTMLElement>(`.w[data-i="${wi}"]`) : null;
+      if (el) {
+        el.classList.add('playing');
+        // phát nhiều câu: tô câu đang hát và cuộn theo
+        if (playingLine === null && cur === null) {
+          const ln = el.closest('.line');
+          document.querySelectorAll('.line.follow').forEach((x) => x !== ln && x.classList.remove('follow'));
+          ln?.classList.add('follow');
+          const rc = el.getBoundingClientRect();
+          const bar = $('playerbar')?.getBoundingClientRect().top ?? innerHeight;
+          if (rc.top < 120 || rc.bottom > bar - 40) el.scrollIntoView({ block: 'center', behavior: 'smooth' });
+        }
+      }
+    }
     requestAnimationFrame(tick);
   };
   requestAnimationFrame(tick);
 }
 
 function stopPlay() {
-  const wasLine = playingLine !== null;
+  const wasLine = playingLine !== null || playingFrom !== null;
   playing = false;
   playingLine = null;
+  playingFrom = null;
+  document.querySelectorAll('.line.follow').forEach((x) => x.classList.remove('follow'));
   playerMod?.stop();
   setPlayUi(false);
   if (wasLine) renderLines();

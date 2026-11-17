@@ -1212,6 +1212,34 @@ button.install {
   color: #fff;
 }
 
+.lctl {
+  margin-top: 12px;
+}
+/* nghe từ câu này đến hết bài: nằm ngay trên nút nghe câu */
+.lf {
+  width: 34px;
+  height: 26px;
+  min-height: 26px;
+  padding: 0;
+  border-radius: 13px;
+  border: 1px solid color-mix(in srgb, var(--brand) 35%, var(--line));
+  background: var(--brand-soft);
+  color: var(--brand-ink);
+  display: grid;
+  place-items: center;
+}
+.lf:hover {
+  border-color: var(--brand);
+}
+.lf.on {
+  background: var(--play);
+  border-color: var(--play);
+  color: #fff;
+}
+.line.follow {
+  background: color-mix(in srgb, var(--play) 6%, transparent);
+}
+
 /* ô chữ: hợp âm / nét giai điệu / lời / nốt */
 .w {
   grid-template-rows: 18px 24px auto 16px;
